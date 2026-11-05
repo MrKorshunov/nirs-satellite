@@ -114,11 +114,12 @@ def main() -> None:
         raise ValueError("The first orbit study must remain explicitly synthetic")
     if params["eccentricity"] != 0.0:
         raise ValueError("This initial experiment is restricted to a circular orbit")
-    if not (0.0 < params["time_step_s"] and params["orbits_to_simulate"] > 0):
-        raise ValueError("Invalid simulation duration or time step")
     if args.step_s is not None:
         params["time_step_s"] = args.step_s
         params["step_origin"] = "command line override for convergence study"
+    if not (math.isfinite(float(params["time_step_s"])) and
+            0.0 < params["time_step_s"] and params["orbits_to_simulate"] > 0):
+        raise ValueError("Invalid simulation duration or time step")
     output.mkdir(parents=True, exist_ok=True)
 
     simulation = SimulationBaseClass.SimBaseClass()
