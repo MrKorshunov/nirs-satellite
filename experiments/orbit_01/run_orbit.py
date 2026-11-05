@@ -169,8 +169,10 @@ def main() -> None:
             )
             vizard_status = f"recording requested: {vizard_file}"
 
+    print("Orbit model configured. Initializing Basilisk...", flush=True)
     simulation.InitializeSimulation()
     simulation.ConfigureStopTime(macros.sec2nano(simulation_duration_s))
+    print("Calculating orbit...", flush=True)
     simulation.ExecuteSimulation()
 
     time_s = np.asarray(recorder.times(), dtype=float) * 1e-9
