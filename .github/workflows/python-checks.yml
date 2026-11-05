@@ -19,3 +19,39 @@ jobs:
         run: python -m compileall -q nirs_satellite experiments tests main.py explain.py
       - name: Run independent tests without external scientific packages
         run: python -m unittest discover -s tests -v
+
+  basilisk-orbit-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install pinned simulation requirements
+        run: python -m pip install "bsk[all,examples]==2.12.2"
+      - name: Run the physical orbit baseline
+        run: python -m experiments.orbit_01.run_orbit
+      - name: Verify outputs and numerical invariants
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("results/orbit_01")
+          d = json.loads((p / "summary.json").read_text(encoding="utf-8"))
+          assert d["position_sample_count"] >= 100
+          assert d["relative_specific_energy_span"] < 1e-5
+          assert d["relative_angular_momentum_span"] < 1e-5
+          for filename in ("states.csv", "orbit_3d.png", "radial_height.png"):
+              assert (p / filename).exists(), filename
+          print("Basilisk orbit smoke OK", d["position_sample_count"], "samples")
+          PY
+      - name: Preserve numerical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: basilisk-orbit-01
+          path: results/orbit_01/
+          if-no-files-found: warn
