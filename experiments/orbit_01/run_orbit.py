@@ -231,7 +231,10 @@ def main() -> None:
     print(f"Relative energy span: {energy_span:.3e}")
     print(f"Relative angular momentum span: {momentum_span:.3e}")
     print(f"Vizard: {vizard_status}")
-    print(f"Results folder: {OUTPUT}")
+    # Use an ASCII-only status line: Windows CI may use cp1252 for stdout,
+    # even when the project itself lives inside a Cyrillic-named folder.
+    # The absolute path is retained in JSON / derived from PROJECT_ROOT.
+    print("Results folder (relative to repository): results/orbit_01")
     if vizard_file is not None:
         print(f"Vizard playback file: {vizard_file} (exists={vizard_file.is_file()})")
 
