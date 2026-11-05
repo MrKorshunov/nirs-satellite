@@ -39,10 +39,8 @@ from nirs_satellite.orbit.analytical import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = Path(__file__).with_name("config.json")
-OUTPUT = PROJECT_ROOT / "results" / "orbit_01"
 
-
-def _plot_orbit(position_m: np.ndarray, earth_radius_m: float) -> None:
+def _plot_orbit(position_m: np.ndarray, earth_radius_m: float, output: Path) -> None:
     fig = plt.figure(figsize=(8, 7))
     ax = fig.add_subplot(111, projection="3d")
     theta = np.linspace(0, 2 * np.pi, 48)
@@ -61,11 +59,11 @@ def _plot_orbit(position_m: np.ndarray, earth_radius_m: float) -> None:
     ax.set_box_aspect((1, 1, 1))
     ax.legend()
     fig.tight_layout()
-    fig.savefig(OUTPUT / "orbit_3d.png", dpi=150)
+    fig.savefig(output / "orbit_3d.png", dpi=150)
     plt.close(fig)
 
 
-def _plot_height(times_s: np.ndarray, position_m: np.ndarray, earth_radius_m: float) -> None:
+def _plot_height(times_s: np.ndarray, position_m: np.ndarray, earth_radius_m: float, output: Path) -> None:
     """Report the actual radius-based height AND a separate numerical drift.
 
     Do not allow Matplotlib's scientific offset to make millimetre-level
@@ -83,7 +81,7 @@ def _plot_height(times_s: np.ndarray, position_m: np.ndarray, earth_radius_m: fl
     ax.ticklabel_format(axis="y", style="plain", useOffset=False)
     ax.grid(True)
     fig.tight_layout()
-    fig.savefig(OUTPUT / "radial_height.png", dpi=150)
+    fig.savefig(output / "radial_height.png", dpi=150)
     plt.close(fig)
 
     delta_height_m = radial_height_m - radial_height_m[0]
@@ -94,7 +92,7 @@ def _plot_height(times_s: np.ndarray, position_m: np.ndarray, earth_radius_m: fl
     ax.ticklabel_format(axis="y", style="plain", useOffset=False)
     ax.grid(True)
     fig.tight_layout()
-    fig.savefig(OUTPUT / "radial_height_deviation_m.png", dpi=150)
+    fig.savefig(output / "radial_height_deviation_m.png", dpi=150)
     plt.close(fig)
 
 
@@ -102,7 +100,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Basilisk two-body orbit experiment")
     parser.add_argument("--viz", action="store_true",
                         help="Export Vizard playback to an ASCII-only directory outside the project")
+    parser.add_argument("--step-s", type=float, default=None,
+                        help="Integration step in seconds; overrides time_step_s from config.json")
+    parser.add_argument("--output-name", default="orbit_01",
+                        help="Results directory name (under results/); letters, digits, _ and - only")
     args = parser.parse_args()
+    if (not args.output_name or
+            any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in args.output_name)):
+        parser.error("--output-name must contain only ASCII letters, digits, _ and -")
+    output = PROJECT_ROOT / "results" / args.output_name
     params = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     if params["provenance"].startswith("SYNTHETIC") is False:
         raise ValueError("The first orbit study must remain explicitly synthetic")
@@ -110,7 +116,10 @@ def main() -> None:
         raise ValueError("This initial experiment is restricted to a circular orbit")
     if not (0.0 < params["time_step_s"] and params["orbits_to_simulate"] > 0):
         raise ValueError("Invalid simulation duration or time step")
-    OUTPUT.mkdir(parents=True, exist_ok=True)
+    if args.step_s is not None:
+        params["time_step_s"] = args.step_s
+        params["step_origin"] = "command line override for convergence study"
+    output.mkdir(parents=True, exist_ok=True)
 
     simulation = SimulationBaseClass.SimBaseClass()
     process = simulation.CreateNewProcess("orbitProcess")
@@ -208,7 +217,7 @@ def main() -> None:
     energy_span = relative_span(specific_energy.tolist())
     momentum_span = relative_span(angular_momentum.tolist())
 
-    with (OUTPUT / "states.csv").open("w", newline="", encoding="utf-8") as stream:
+    with (output / "states.csv").open("w", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream)
         writer.writerow(["time_s", "x_m", "y_m", "z_m", "vx_m_s", "vy_m_s", "vz_m_s",
                          "radius_m", "radial_height_m", "speed_m_s", "specific_energy_J_kg"])
@@ -218,8 +227,8 @@ def main() -> None:
             writer.writerow([float(t), *[float(q) for q in r], *[float(q) for q in v],
                              float(dist), float(dist - radius), float(speed), float(en)])
 
-    _plot_orbit(position_m, radius)
-    _plot_height(time_s, position_m, radius)
+    _plot_orbit(position_m, radius, output)
+    _plot_height(time_s, position_m, radius, output)
 
     summary = {
         "scenario": params,
@@ -244,7 +253,7 @@ def main() -> None:
             "Plots and Vizard are visualizations of computed states, not validation",
         ],
     }
-    (OUTPUT / "summary.json").write_text(
+    (output / "summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
@@ -257,7 +266,7 @@ def main() -> None:
     # Use an ASCII-only status line: Windows CI may use cp1252 for stdout,
     # even when the project itself lives inside a Cyrillic-named folder.
     # The absolute path is retained in JSON / derived from PROJECT_ROOT.
-    print("Results folder (relative to repository): results/orbit_01")
+    print(f"Results folder (relative to repository): results/{args.output_name}")
     if vizard_file is not None:
         print(f"Vizard playback file: {vizard_file} (exists={vizard_file.is_file()})")
 
