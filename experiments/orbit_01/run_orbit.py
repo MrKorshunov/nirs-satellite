@@ -23,6 +23,7 @@ from Basilisk.utilities import (
     SimulationBaseClass,
     macros,
     orbitalMotion,
+    simHelpers,
     simIncludeGravBody,
     vizSupport,
 )
@@ -92,6 +93,22 @@ def main() -> None:
 
     sat = spacecraft.Spacecraft()
     sat.ModelTag = "NIRS-SAT-01"
+
+    # Basilisk 2.11+ validates hub mass and positive-definite inertia at reset.
+    # These values are explicitly SYNTHETIC; the point-mass orbit does not
+    # depend on hub mass or inertia, but the 6-DOF Spacecraft module requires
+    # physically admissible hub properties.
+    mass_kg = float(params["hub_mass_kg"])
+    diag = [float(v) for v in params["hub_inertia_diag_kg_m2"]]
+    if mass_kg <= 0 or len(diag) != 3 or any(v <= 0 for v in diag):
+        raise ValueError("Hub mass must be positive; all three inertia moments must be positive")
+    sat.hub.mHub = mass_kg
+    sat.hub.r_BcB_B = [[0.0], [0.0], [0.0]]
+    sat.hub.IHubPntBc_B = simHelpers.np2EigenMatrix3d([
+        diag[0], 0.0, 0.0,
+        0.0, diag[1], 0.0,
+        0.0, 0.0, diag[2],
+    ])
     simulation.AddModelToTask(task_name, sat)
 
     gravity_factory = simIncludeGravBody.gravBodyFactory()
