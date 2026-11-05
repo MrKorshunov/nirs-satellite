@@ -34,6 +34,8 @@ jobs:
         run: python -m pip install "bsk[all,examples]==2.12.2"
       - name: Run the physical orbit baseline
         run: python -m experiments.orbit_01.run_orbit
+      - name: Compare numerical states with independent analytical orbit
+        run: python -m experiments.orbit_01.validate_orbit
       - name: Verify outputs and numerical invariants
         run: |
           python - <<'PY'
@@ -82,6 +84,8 @@ jobs:
             if ($report.position_sample_count -lt 100 -or $report.relative_specific_energy_span -ge 0.00001) {
               throw 'Orbital dynamics verification failed'
             }
+            python -m experiments.orbit_01.validate_orbit
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             Write-Output "Windows Cyrillic directory: physical orbit OK"
             python -m experiments.orbit_01.run_orbit --viz
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
