@@ -3,3 +3,6 @@ __pycache__/
 .pytest_cache/
 .venv/
 .DS_Store
+
+# Generated physical-orbit experiments; reproduce from config.json
+/results/orbit_01/
