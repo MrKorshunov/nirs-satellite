@@ -6,3 +6,6 @@ __pycache__/
 
 # Generated physical-orbit experiments; reproduce from config.json
 /results/orbit_01/
+
+# Local diagnostic output from failed orbit runs
+orbit_error.txt
