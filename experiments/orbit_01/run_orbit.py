@@ -66,15 +66,35 @@ def _plot_orbit(position_m: np.ndarray, earth_radius_m: float) -> None:
 
 
 def _plot_height(times_s: np.ndarray, position_m: np.ndarray, earth_radius_m: float) -> None:
-    # Radial height above a *spherical reference*, not ellipsoidal/geodetic altitude.
-    radial_height_km = (np.linalg.norm(position_m, axis=1) - earth_radius_m) / 1000
+    """Report the actual radius-based height AND a separate numerical drift.
+
+    Do not allow Matplotlib's scientific offset to make millimetre-level
+    integration errors look like kilometre-scale altitude variations.
+    """
+    radial_height_m = np.linalg.norm(position_m, axis=1) - earth_radius_m
+    radial_height_km = radial_height_m / 1000.0
+    initial_height_km = radial_height_km[0]
+
     fig, ax = plt.subplots(figsize=(9, 4))
     ax.plot(times_s / 60, radial_height_km)
     ax.set(xlabel="Time (minutes)", ylabel="Radial height (km)",
-           title="Height above spherical reference radius")
+           title="Radial height above spherical Earth reference")
+    ax.set_ylim(initial_height_km - 5.0, initial_height_km + 5.0)
+    ax.ticklabel_format(axis="y", style="plain", useOffset=False)
     ax.grid(True)
     fig.tight_layout()
     fig.savefig(OUTPUT / "radial_height.png", dpi=150)
+    plt.close(fig)
+
+    delta_height_m = radial_height_m - radial_height_m[0]
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.plot(times_s / 60, delta_height_m)
+    ax.set(xlabel="Time (minutes)", ylabel="Height deviation (m)",
+           title="Numerical height deviation from initial 500 km orbit")
+    ax.ticklabel_format(axis="y", style="plain", useOffset=False)
+    ax.grid(True)
+    fig.tight_layout()
+    fig.savefig(OUTPUT / "radial_height_deviation_m.png", dpi=150)
     plt.close(fig)
 
 
@@ -212,6 +232,7 @@ def main() -> None:
         "position_sample_count": int(len(time_s)),
         "minimum_radial_height_m": float(np.min(distance_m - radius)),
         "maximum_radial_height_m": float(np.max(distance_m - radius)),
+        "maximum_height_deviation_from_start_m": float(np.max(np.abs(distance_m - distance_m[0]))),
         "relative_specific_energy_span": energy_span,
         "relative_angular_momentum_span": momentum_span,
         "vizard_export": vizard_status,
