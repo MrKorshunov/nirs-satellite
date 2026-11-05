@@ -36,6 +36,8 @@ jobs:
         run: python -m experiments.orbit_01.run_orbit
       - name: Compare numerical states with independent analytical orbit
         run: python -m experiments.orbit_01.validate_orbit
+      - name: Compare orbital propagation steps with analytical reference
+        run: python -m experiments.orbit_01.compare_steps
       - name: Verify outputs and numerical invariants
         run: |
           python - <<'PY'
