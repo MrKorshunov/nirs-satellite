@@ -44,7 +44,7 @@ jobs:
           assert d["position_sample_count"] >= 100
           assert d["relative_specific_energy_span"] < 1e-5
           assert d["relative_angular_momentum_span"] < 1e-5
-          for filename in ("states.csv", "orbit_3d.png", "radial_height.png"):
+          for filename in ("states.csv", "orbit_3d.png", "radial_height.png", "radial_height_deviation_m.png"):
               assert (p / filename).exists(), filename
           print("Basilisk orbit smoke OK", d["position_sample_count"], "samples")
           PY
