@@ -55,3 +55,41 @@ jobs:
           name: basilisk-orbit-01
           path: results/orbit_01/
           if-no-files-found: warn
+
+  basilisk-windows-unicode-path:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.13 on Windows
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install Basilisk on Windows
+        run: python -m pip install "bsk[all,examples]==2.12.2"
+      - name: Test orbital dynamics inside a Cyrillic-named folder
+        shell: pwsh
+        run: |
+          $folder = Join-Path $env:RUNNER_TEMP 'НИР'
+          New-Item -Path $folder -ItemType Directory -Force | Out-Null
+          Copy-Item -Path '.\experiments', '.\nirs_satellite' -Destination $folder -Recurse -Force
+          Push-Location $folder
+          try {
+            python -m experiments.orbit_01.run_orbit
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $report = Get-Content '.\results\orbit_01\summary.json' -Raw | ConvertFrom-Json
+            if ($report.position_sample_count -lt 100 -or $report.relative_specific_energy_span -ge 0.00001) {
+              throw 'Orbital dynamics verification failed'
+            }
+            Write-Output "Windows Cyrillic directory: physical orbit OK"
+            python -m experiments.orbit_01.run_orbit --viz
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $report = Get-Content '.\results\orbit_01\summary.json' -Raw | ConvertFrom-Json
+            Write-Output "Vizard state: $($report.vizard_export); created=$($report.vizard_file_created)"
+            if ($report.vizard_export -like 'recording requested*' -and -not $report.vizard_file_created) {
+              throw 'Vizard recording was requested but not created'
+            }
+          } finally {
+            Pop-Location
+          }
