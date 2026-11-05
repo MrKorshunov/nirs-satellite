@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic demonstration, not real spacecraft telemetry",
+  "units": {"time": "seconds", "data": "bytes", "rate": "bytes/second"},
+  "memory_capacity_bytes": 180000000,
+  "tasks": [
+    {"id": "A_fields", "capture_start_s": 180, "capture_end_s": 300, "volume_bytes": 90000000, "deadline_s": 9000, "priority": 1},
+    {"id": "B_water", "capture_start_s": 480, "capture_end_s": 600, "volume_bytes": 90000000, "deadline_s": 4500, "priority": 1},
+    {"id": "C_forest", "capture_start_s": 1080, "capture_end_s": 1200, "volume_bytes": 90000000, "deadline_s": 6600, "priority": 1}
+  ],
+  "contacts": [
+    {"start_s": 2700, "end_s": 4500, "rate_bytes_per_s": 50000},
+    {"start_s": 5400, "end_s": 7200, "rate_bytes_per_s": 50000}
+  ]
+}

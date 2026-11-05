@@ -1,0 +1,8 @@
+time_s,type,task,bytes,reason,end_s
+300,capture_finished,A_fields,90000000,,
+600,capture_finished,B_water,90000000,,
+1200,capture_rejected,C_forest,90000000,memory_full,
+2700,downlink,B_water,90000000,,4500.0
+4500.0,delivered_on_time,B_water,90000000,,
+5400,downlink,A_fields,90000000,,7200.0
+7200.0,delivered_on_time,A_fields,90000000,,

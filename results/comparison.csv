@@ -1,0 +1,3 @@
+policy,completed_on_time,delivered_late,rejected_memory,undelivered,task_count,k_weighted_on_time,delivered_bytes,max_memory_bytes
+fifo,['A_fields'],['B_water'],['C_forest'],[],3,0.333333,180000000,180000000
+edf,"['A_fields', 'B_water']",[],['C_forest'],[],3,0.666667,180000000,180000000

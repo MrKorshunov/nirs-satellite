@@ -1,0 +1,35 @@
+[
+  {
+    "policy": "fifo",
+    "completed_on_time": [
+      "A_fields"
+    ],
+    "delivered_late": [
+      "B_water"
+    ],
+    "rejected_memory": [
+      "C_forest"
+    ],
+    "undelivered": [],
+    "task_count": 3,
+    "k_weighted_on_time": 0.333333,
+    "delivered_bytes": 180000000,
+    "max_memory_bytes": 180000000
+  },
+  {
+    "policy": "edf",
+    "completed_on_time": [
+      "A_fields",
+      "B_water"
+    ],
+    "delivered_late": [],
+    "rejected_memory": [
+      "C_forest"
+    ],
+    "undelivered": [],
+    "task_count": 3,
+    "k_weighted_on_time": 0.666667,
+    "delivered_bytes": 180000000,
+    "max_memory_bytes": 180000000
+  }
+]
