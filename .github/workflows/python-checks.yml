@@ -1,0 +1,21 @@
+name: Python checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Check Python syntax
+        run: python -m compileall -q nirs_satellite experiments tests main.py explain.py
+      - name: Run independent tests without external scientific packages
+        run: python -m unittest discover -s tests -v
