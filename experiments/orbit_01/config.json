@@ -1,14 +1,20 @@
 {
   "scenario_id": "orbit_circular_500km",
   "provenance": "SYNTHETIC EDUCATIONAL SCENARIO; not a real spacecraft orbit",
-  "reference_radius_m": 6378137.0,
-  "initial_altitude_m": 500000.0,
-  "eccentricity": 0.0,
-  "inclination_deg": 45.0,
-  "raan_deg": 30.0,
-  "argument_of_periapsis_deg": 0.0,
-  "true_anomaly_deg": 0.0,
-  "time_step_s": 10.0,
-  "orbits_to_simulate": 1.0,
-  "gravity": "Earth point mass; mu from Basilisk createEarth()"
+  "reference_radius_m": 6378137,
+  "initial_altitude_m": 500000,
+  "eccentricity": 0,
+  "inclination_deg": 45,
+  "raan_deg": 30,
+  "argument_of_periapsis_deg": 0,
+  "true_anomaly_deg": 0,
+  "time_step_s": 10,
+  "orbits_to_simulate": 1,
+  "gravity": "Earth point mass; mu from Basilisk createEarth()",
+  "hub_mass_kg": 10,
+  "hub_inertia_diag_kg_m2": [
+    0.12,
+    0.16,
+    0.2
+  ]
 }
