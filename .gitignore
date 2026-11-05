@@ -9,3 +9,8 @@ __pycache__/
 
 # Local diagnostic output from failed orbit runs
 orbit_error.txt
+
+# Variants of one orbit simulation and their generated reports
+/results/orbit_01_step10/
+/results/orbit_01_step05/
+/results/orbit_01_convergence.json
