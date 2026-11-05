@@ -8,9 +8,11 @@ Launch from repository root:
 """
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import math
+import os
 from importlib.metadata import version
 from pathlib import Path
 
@@ -77,6 +79,10 @@ def _plot_height(times_s: np.ndarray, position_m: np.ndarray, earth_radius_m: fl
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Basilisk two-body orbit experiment")
+    parser.add_argument("--viz", action="store_true",
+                        help="Export Vizard playback to an ASCII-only directory outside the project")
+    args = parser.parse_args()
     params = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     if params["provenance"].startswith("SYNTHETIC") is False:
         raise ValueError("The first orbit study must remain explicitly synthetic")
@@ -138,15 +144,30 @@ def main() -> None:
     recorder = sat.scStateOutMsg.recorder()
     simulation.AddModelToTask(task_name, recorder)
 
-    vizard_status = "not available"
-    if vizSupport.vizFound:
-        try:
+    # Vizard playback is OPTIONAL. Disabling it must never prevent
+    # calculating physical orbital states, CSV or PNG on Windows.
+    # Basilisk's native VizInterface may be unable to open Cyrillic paths.
+    # Save directly to an existing ASCII-only .bin location rather than
+    # adding an _VizFiles subfolder under the user's project directory.
+    vizard_file = None
+    vizard_status = "disabled (add --viz after the basic orbit succeeds)"
+    if args.viz:
+        if not vizSupport.vizFound:
+            vizard_status = "unavailable: Basilisk lacks vizInterface"
+        else:
+            viz_parent = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "NIRS_Satellite" / "viz"
+            if not str(viz_parent).isascii():
+                raise RuntimeError(
+                    "Vizard export path contains non-ASCII characters: "
+                    f"{viz_parent}. Set LOCALAPPDATA to a writable ASCII-only path "
+                    "for this run, or run without --viz."
+                )
+            viz_parent.mkdir(parents=True, exist_ok=True)
+            vizard_file = viz_parent / "orbit_01.bin"
             vizSupport.enableUnityVisualization(
-                simulation, task_name, sat, saveFile=str((OUTPUT / "orbit_01").resolve())
+                simulation, task_name, sat, saveFile=str(vizard_file)
             )
-            vizard_status = "playback recording requested"
-        except Exception as exc:
-            vizard_status = f"could not enable Vizard export: {type(exc).__name__}: {exc}"
+            vizard_status = f"recording requested: {vizard_file}"
 
     simulation.InitializeSimulation()
     simulation.ConfigureStopTime(macros.sec2nano(simulation_duration_s))
@@ -192,6 +213,7 @@ def main() -> None:
         "relative_specific_energy_span": energy_span,
         "relative_angular_momentum_span": momentum_span,
         "vizard_export": vizard_status,
+        "vizard_file_created": bool(vizard_file and vizard_file.is_file()),
         "limitations": [
             "Synthetic circular orbit, not an observed spacecraft",
             "Point-mass Earth gravity, no J2, drag, Sun or Moon",
@@ -210,9 +232,8 @@ def main() -> None:
     print(f"Relative angular momentum span: {momentum_span:.3e}")
     print(f"Vizard: {vizard_status}")
     print(f"Results folder: {OUTPUT}")
-    if vizSupport.vizFound:
-        for file in (OUTPUT.parent).rglob("*_UnityViz.bin"):
-            print(f"Vizard playback file: {file}")
+    if vizard_file is not None:
+        print(f"Vizard playback file: {vizard_file} (exists={vizard_file.is_file()})")
 
 
 if __name__ == "__main__":
