@@ -1,0 +1,71 @@
+# Орбита: проверка расчётов и расположение исходного кода
+
+## Что уже подтверждено
+- В Windows пользователь запустил Basilisk 2.12.2 и получил 568 отсчётов, PNG-траекторию и файл Vizard, а также показал Vizard со спутником и временем моделирования 00:06:10.
+- Аналитическая оценка периода: 94.616 мин; круговой скорости: 7.6126 км/с.
+- В численной модели относительный разброс удельной энергии: 2.895e-11; модуля момента импульса: 1.448e-11.
+- Эти результаты относятся к **круговой двухтельной модели**, а не к реальному КА.
+
+## Что именно проверено, а что нет
+1. **Исполнимость:** Basilisk выдаёт траекторию и Vizard её отображает.
+2. **Физические инварианты:** удельная энергия и модуль момента импульса почти постоянны. Это важный численный контроль, но не гарантия правильной исходной постановки.
+3. **Независимое аналитическое сравнение:** модуль `validate_orbit.py` читает `states.csv` и `summary.json` и **без импорта Basilisk** вычисляет круговую орбиту:
+   - r(t) = r0·cos(n·t) + (v0/n)·sin(n·t)
+   - v(t) = -n·r0·sin(n·t) + v0·cos(n·t)
+   - n = sqrt(mu/a³).
+   Он выводит максимальные ошибки координат (метры) и скорости (метры/с), проверяет исходный радиус, скорость и радиальную компоненту скорости и пишет `validation.json`.
+4. **Сходимость по временному шагу:** следующий отдельный эксперимент — расчёты с шагами 10 и 5 секунд и сравнение координат в одинаковые моменты. Ещё не проведён.
+5. **Валидация реальной орбиты:** для неё нужны измеренные данные/эфемериды, полноценная динамика (J2, сопротивление и другие воздействия), временные шкалы и системы координат. На текущем этапе отсутствует.
+
+## Как проверить на Windows
+
+Открыть PowerShell **из корня Git-репозитория** и использовать Python 3.13 из `.venv`:
+
+```powershell
+.\.venv\Scripts\python.exe -m experiments.orbit_01.run_orbit
+.\.venv\Scripts\python.exe -m experiments.orbit_01.validate_orbit
+notepad .\results\orbit_01\validation.json
+```
+
+Последняя команда открывает численный отчёт о сравнении. `PASS` означает, что расхождения удовлетворяют **заданным нами допускам для учебной модели**, а не что доказана точность реального спутника.
+
+## Карта исходного кода
+
+| Что | В нашем GitHub | В установленном Basilisk/официальном GitHub |
+|---|---|---|
+| Параметры (500 км, наклонение и т.д.) | `experiments/orbit_01/config.json` | Не являются параметрами конкретной миссии |
+| Настройка модели и запуск | `experiments/orbit_01/run_orbit.py` | API `spacecraft.Spacecraft`, `simIncludeGravBody` |
+| Само интегрирование и динамика КА | Вызывается, **не скопировано** | [spacecraft.cpp](https://github.com/AVSLab/basilisk/blob/v2.12.2/src/simulation/dynamics/spacecraft/spacecraft.cpp) |
+| Гравитационное воздействие | Вызывается, **не скопировано** | [gravityEffector.cpp](https://github.com/AVSLab/basilisk/blob/v2.12.2/src/simulation/dynamics/_GeneralModuleFiles/gravityEffector.cpp) |
+| Орбитальные элементы -> координаты | `orbitalMotion.elem2rv` в `run_orbit.py` | [orbitalMotion.py](https://github.com/AVSLab/basilisk/blob/v2.12.2/src/utilities/orbitalMotion.py) |
+| Конфигурация Земли | `createEarth()` | [simIncludeGravBody.py](https://github.com/AVSLab/basilisk/blob/v2.12.2/src/utilities/simIncludeGravBody.py) |
+| Воспроизводимый официальный пример | Адаптирован API, без копирования кода | [scenarioBasicOrbit.py](https://github.com/AVSLab/basilisk/blob/v2.12.2/examples/scenarioBasicOrbit.py) |
+| Тесты самой библиотеки | Не копировались | [test_scenarioBasicOrbit.py](https://github.com/AVSLab/basilisk/blob/v2.12.2/src/tests/test_scenarioBasicOrbit.py) |
+| Наша независимая проверка | `experiments/orbit_01/validate_orbit.py`, `nirs_satellite/orbit/analytical.py` | Формулы Кеплера и двухтельного движения, не движок Basilisk |
+| Наши автоматические проверки | `tests/`, `.github/workflows/python-checks.yml` | GitHub Actions на Linux и Windows |
+
+### Где библиотека находится на твоём Windows
+
+Basilisk устанавливается отдельно через pip, поэтому **не отображается в нашем GitHub как папка с исходниками**. На Windows он находится примерно в:
+
+```text
+nirs-satellite/
+  .venv/
+    Lib/
+      site-packages/
+        Basilisk/
+```
+
+Точную папку вывести так:
+
+```powershell
+.\.venv\Scripts\python.exe -c "import Basilisk; print(Basilisk.__path__)"
+```
+
+Папка `.venv/` скрыта от Git через `.gitignore` намеренно: зависимости воспроизводятся установкой фиксированной версии пакета, а не хранятся копиями в репозитории.
+
+### Где данные именно нашего эксперимента
+
+`results/orbit_01/states.csv` — таблица всех положений и скоростей; `summary.json` — параметры и итоги; `validation.json` — сравнение с аналитической формулой; PNG — графики. Результаты генерируются локально и **не загружаются в Git по умолчанию**. Для Vizard бинарная запись лежит в `%LOCALAPPDATA%\NIRS_Satellite\viz\orbit_01.bin`.
+
+Перед включением физических моделей более высокой точности мы должны зафиксировать их математические допущения, источники параметров и независимые эталоны, а не просто доверять имени библиотеки.
