@@ -32,6 +32,11 @@ def compare(coarse: Path, fine: Path) -> dict:
         abs(float(a[k]["boresight_error_deg"])-float(b[k]["boresight_error_deg"]))
         for k in shared
     ]
+    worst = max(range(len(shared)), key=lambda i: errors[i])
+    after_30s = [delta for key, delta in zip(shared, errors) if key >= 30_000_000]
+    after_60s = [delta for key, delta in zip(shared, errors) if key >= 60_000_000]
+    during_access = [delta for key,delta in zip(shared,errors)
+                     if bool(int(a[key]["has_ground_access"]))]
     a_report = json.loads((coarse / "adcs_summary.json").read_text(encoding="utf-8"))
     b_report = json.loads((fine / "adcs_summary.json").read_text(encoding="utf-8"))
     if not a_report["checks_passed"] or not b_report["checks_passed"]:
@@ -43,6 +48,11 @@ def compare(coarse: Path, fine: Path) -> dict:
         "common_sample_times": len(shared),
         "max_boresight_difference_deg": max(errors),
         "mean_boresight_difference_deg": sum(errors)/len(errors),
+        "worst_difference_time_s": shared[worst] / 1e6,
+        "max_difference_after_30s_deg": max(after_30s),
+        "max_difference_after_60s_deg": max(after_60s),
+        "max_difference_during_access_deg": max(during_access) if during_access else None,
+        "count_difference_above_2deg": sum(v > 2 for v in errors),
         "coarse_minimum_error_deg": a_report["minimum_boresight_error_deg"],
         "fine_minimum_error_deg": b_report["minimum_boresight_error_deg"],
         "coarse_ready_samples": a_report["pointing_ready_samples_during_access"],
@@ -71,6 +81,11 @@ def main() -> None:
     result_path.write_text(json.dumps(r, indent=2), encoding="utf-8")
     print(f"Max boresight difference: {r['max_boresight_difference_deg']:.9g} deg")
     print(f"Mean boresight difference: {r['mean_boresight_difference_deg']:.9g} deg")
+    print(f"Worst time: {r['worst_difference_time_s']:.6f} s")
+    print(f"Max after 30s: {r['max_difference_after_30s_deg']:.9g} deg")
+    print(f"Max after 60s: {r['max_difference_after_60s_deg']:.9g} deg")
+    print(f"Max during actual geometric access: {r['max_difference_during_access_deg']!s} deg")
+    print(f"Samples >2 deg: {r['count_difference_above_2deg']}")
     print("Report:", result_path)
     # Explicit engineering screening limit for this controlled model only,
     # not a tolerance on the pointing accuracy of any flight spacecraft.
