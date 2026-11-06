@@ -9,9 +9,11 @@ From repository root:
 """
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import math
+import os
 from importlib.metadata import version
 from pathlib import Path
 
@@ -21,7 +23,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from Basilisk.simulation import groundLocation, planetEphemeris, spacecraft
 from Basilisk.utilities import (
-    SimulationBaseClass, macros, orbitalMotion, simHelpers, simIncludeGravBody
+    SimulationBaseClass, macros, orbitalMotion, simHelpers, simIncludeGravBody, vizSupport
 )
 
 from experiments.ground_01.geometry import (
@@ -68,6 +70,14 @@ def draw_plots(times: np.ndarray, elevation_deg: np.ndarray, range_km: np.ndarra
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Ground 01: rotating Earth and geometric visibility"
+    )
+    parser.add_argument(
+        "--viz", action="store_true",
+        help="Also create a Vizard playback with the rotating Earth and target marker",
+    )
+    args = parser.parse_args()
     params=json.loads(CONF.read_text(encoding="utf-8"))
     orbit_config=(CONF.parent/params["orbit_config_path"]).resolve()
     orbit_cfg=json.loads(orbit_config.read_text(encoding="utf-8"))
@@ -126,6 +136,9 @@ def main() -> None:
     grav=simIncludeGravBody.gravBodyFactory()
     earth=grav.createEarth()
     earth.isCentralBody=True
+    # A single physical Earth orientation drives BOTH groundLocation and Vizard.
+    # The point-mass gravity remains Earth-centred under zeroBase="earth".
+    earth.planetBodyInMsg.subscribeTo(eph.planetOutMsgs[0])
     grav.addBodiesTo(sat)
     mu=float(earth.mu)
     elements=orbitalMotion.ClassicElements()
@@ -155,6 +168,48 @@ def main() -> None:
     access_rec=target.accessOutMsgs[0].recorder()
     for recorder in (sc_rec,ground_rec,access_rec):
         sim.AddModelToTask(task,recorder,ModelPriority=0)
+
+    # Vizard is optional so its native file writer never blocks basic physics.
+    # Explicit .bin in ASCII-only LOCALAPPDATA avoids the Windows Cyrillic path
+    # failure found in Orbit 01. The target uses the SAME spherical planet-fixed
+    # coordinates as groundLocation.specifyLocation(), not an independently
+    # guessed geodetic/WGS84 point.
+    viz_file = None
+    viz_status = "disabled (use --viz to create Vizard playback)"
+    if args.viz:
+        if not vizSupport.vizFound:
+            raise RuntimeError("Installed Basilisk lacks vizInterface support")
+        viz_dir = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "NIRS_Satellite" / "viz"
+        if not str(viz_dir).isascii():
+            raise RuntimeError(
+                "Vizard playback path is not ASCII-only. Choose an ASCII-only "
+                "LOCALAPPDATA directory or run without --viz."
+            )
+        viz_dir.mkdir(parents=True, exist_ok=True)
+        viz_file = viz_dir / "ground_01.bin"
+        viz = vizSupport.enableUnityVisualization(
+            sim, task, sat, saveFile=str(viz_file)
+        )
+        if viz is None:
+            raise RuntimeError("Could not initialize Vizard export")
+        radial = radius + float(tcfg["altitude_m"])
+        r_ground_fixed = np.array([
+            radial * math.cos(latitude) * math.cos(longitude),
+            radial * math.cos(latitude) * math.sin(longitude),
+            radial * math.sin(latitude),
+        ], dtype=float)
+        normal_fixed = r_ground_fixed / np.linalg.norm(r_ground_fixed)
+        vizSupport.addLocation(
+            viz,
+            stationName=str(tcfg["name"]),
+            parentBodyName=earth.planetName,
+            r_GP_P=r_ground_fixed,
+            gHat_P=normal_fixed,
+            label="SYNTHETIC TARGET (14N 43E)",
+            markerScale=3.0,
+            color=[20, 240, 100, 255],
+        )
+        viz_status = "playback requested; synthetic ground marker attached"
 
     period=orbital_period_s(elements.a,mu)
     print("Ground 01 configured. Initializing Basilisk...",flush=True)
@@ -229,6 +284,14 @@ def main() -> None:
         "max_elevation_deg":float(np.max(np.degrees(elev))),
         "minimum_slant_range_km":float(np.min(ranges)/1000),
         "windows":windows,
+        "vizard": {
+            "requested": bool(args.viz),
+            "status": viz_status,
+            "output_file": str(viz_file) if viz_file else None,
+            "file_created": bool(viz_file and viz_file.is_file()),
+            "earth_attitude_source": "planetEphemeris planetOutMsgs[0] -> earth.planetBodyInMsg",
+            "ground_location_source": "spherical body-fixed coordinates from config.json",
+        },
         "checks":{
             "max_elevation_difference_rad":max_el_error_rad,
             "max_earth_rotation_position_difference_m":max_rotation_difference_m,
@@ -264,6 +327,11 @@ def main() -> None:
     print("Min slant range:",f"{summary['minimum_slant_range_km']:.3f} km")
     print("Checks:",summary["checks"])
     print("Ground geometry:", "PASS" if summary["checks_passed"] else "FAIL")
+    print("Vizard:", viz_status)
+    if viz_file is not None:
+        print(f"Vizard file: {viz_file} (exists={viz_file.is_file()})")
+        if not viz_file.is_file() or viz_file.stat().st_size <= 0:
+            raise RuntimeError("Vizard was requested but no non-empty playback file was written")
     print("Results: results/ground_01")
     if not summary["checks_passed"]:
         raise SystemExit("Ground 01 geometric validation failed; inspect summary.json")
