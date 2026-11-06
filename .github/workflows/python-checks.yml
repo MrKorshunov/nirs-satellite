@@ -92,6 +92,17 @@ jobs:
                 "Nm max:", a["max_commanded_torque_Nm"],
                 "m orbit difference:", max_position_difference)
           PY
+      - name: Compare actual ADCS pointing with 0.5s and 0.25s control steps
+        run: |
+          python -m experiments.adcs_01.compare_steps
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path("results/adcs_01_step_comparison.json").read_text())
+          assert r["common_sample_times"] == 1441
+          assert r["max_boresight_difference_deg"] < 2.0, r
+          print("ADCS sampling sensitivity PASS:", r["max_boresight_difference_deg"], "deg")
+          PY
       - name: Verify two-hour runtime, sparse Vizard frames, and input provenance
         run: |
           python -m experiments.ground_01.run_ground --duration-hours 2 --viz-mode file --viz-step-s 60 --output-name ground_01_2h
