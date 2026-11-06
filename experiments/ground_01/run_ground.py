@@ -378,9 +378,13 @@ def main() -> None:
             "Constant Earth spin with arbitrary initial sidereal angle and no UTC epoch",
             "Spherical Earth ground target, no ellipsoid or terrain",
             "Geometric access only; no camera FOV/attitude, Sun illumination or clouds",
-            "Window boundaries sampled at simulation cadence, uncertainty up to one step"
+            "Window boundaries sampled at telemetry recording cadence, uncertainty up to one RECORD step",
+            "Long-term real orbit prediction would require epoch and perturbation models"
         ],
         "orbit_period_s":period,
+        "run":run.to_dict(),
+        "last_recorded_time_s":float(times[-1]),
+        "last_recorded_time_hours":float(times[-1]/3600.0),
         "earth_mu_m3_s2":mu,
         "samples":len(times),
         "access_samples":int(np.sum(access)),
@@ -389,7 +393,10 @@ def main() -> None:
         "windows":windows,
         "payload": payload_evidence,
         "vizard": {
-            "requested": bool(args.viz),
+            "requested": run.mode != "batch",
+            "mode": run.mode,
+            "frame_step_s": run.viz_step_s,
+            "live_speed_factor": run.live_speed_factor,
             "status": viz_status,
             "output_file": str(viz_file) if viz_file else None,
             "file_created": bool(viz_file and viz_file.is_file()),
@@ -417,10 +424,14 @@ def main() -> None:
     }
     summary["checks_passed"]=all(
         summary["checks"][key]<=limit for key,limit in summary["check_limits"].items()
-    ) and bool(windows)
+    )
     (output/"summary.json").write_text(
         json.dumps(summary,ensure_ascii=False,indent=2),encoding="utf-8"
     )
+    manifest=build_manifest(
+        params,orbit_cfg,run.to_dict(),mu,version("bsk")
+    )
+    save_metadata(output,manifest,summary)
     print("Ground 01 samples:",len(times))
     print("Access windows:",len(windows))
     for i, window in enumerate(windows, start=1):
@@ -442,7 +453,8 @@ def main() -> None:
         print(f"Vizard file: {viz_file} (exists={viz_file.is_file()})")
         if not viz_file.is_file() or viz_file.stat().st_size <= 0:
             raise RuntimeError("Vizard was requested but no non-empty playback file was written")
-    print("Results: results/ground_01")
+    print(f"Results: results/{run.output_name}")
+    print("Inputs and meanings: inputs_and_metrics.json, EXPLAIN_RESULTS.md")
     if payload_evidence:
         print(
             f"Payload 01: {payload_evidence['products_generated']} synthetic product(s), "
