@@ -21,3 +21,7 @@ orbit_error.txt
 # All generated named long-running Ground/Payload experiments are local
 /results/ground_*/
 /results/payload_*/
+
+# Synthetic pointing telemetry and comparison runs
+/results/adcs_*/
+/results/adcs_01_step_comparison.json
