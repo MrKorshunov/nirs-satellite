@@ -15,37 +15,9 @@ from pathlib import Path
 import numpy as np
 
 
-def mrp_to_dcm(sigma: np.ndarray) -> np.ndarray:
-    """Passive DCM [BN] from modified Rodrigues parameters sigma_BN."""
-    x = np.asarray(sigma, dtype=float)
-    if x.shape != (3,) or not np.all(np.isfinite(x)):
-        raise ValueError("Expected finite 3-component attitude MRP")
-    ss = float(np.dot(x, x))
-    skew = np.array([[0, -x[2], x[1]],
-                     [x[2], 0, -x[0]],
-                     [-x[1], x[0], 0]], dtype=float)
-    identity = np.eye(3)
-    return identity + (8 * (skew @ skew) - 4 * (1 - ss) * skew) / (1 + ss) ** 2
-
-
-def true_boresight_error_deg(
-    sigma_BN: np.ndarray,
-    spacecraft_position_N_m: np.ndarray,
-    target_position_N_m: np.ndarray,
-    pHat_B: np.ndarray,
-) -> float:
-    """Actual 3D angle between spacecraft-fixed sensor axis and target LOS."""
-    los = np.asarray(target_position_N_m, float) - np.asarray(spacecraft_position_N_m, float)
-    length = float(np.linalg.norm(los))
-    if length <= 0 or not math.isfinite(length):
-        raise ValueError("Undefined target direction")
-    b = np.asarray(pHat_B, float)
-    if b.shape != (3,) or not math.isclose(float(np.linalg.norm(b)), 1.0, abs_tol=1e-9):
-        raise ValueError("Boresight must be a unit 3-vector")
-    # [BN] transforms inertial to body components, so transpose goes B -> N.
-    b_N = mrp_to_dcm(np.asarray(sigma_BN, float)).T @ b
-    cosine = float(np.clip(np.dot(b_N, los/length), -1, 1))
-    return math.degrees(math.acos(cosine))
+from experiments.adcs_01.kinematics import (
+    true_boresight_error_deg, dcm_orthogonality_error,
+)
 
 
 def analyse_run(
@@ -89,8 +61,7 @@ def analyse_run(
     max_rate = float(config["readiness_tracking_rate_max_rad_s"])
     ready = access & (angle <= max_angle) & (rate_norm <= max_rate)
     orth_error = float(max(
-        np.linalg.norm(mrp_to_dcm(s).T @ mrp_to_dcm(s) - np.eye(3))
-        for s in sig
+        dcm_orthogonality_error(s) for s in sig
     ))
 
     if orth_error > 1e-10:
