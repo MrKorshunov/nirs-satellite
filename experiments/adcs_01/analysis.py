@@ -86,6 +86,34 @@ def analyse_run(
                 float(ti), *[float(x) for x in si], float(ai), float(mi),
                 float(wi), float(ui), int(visible), int(ok),
             ])
+    # Figures are diagnostic views of recorded physical and guidance states.
+    # Separate the pointing metric from the actuator torque for clarity.
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(t/60, angle, label="Actual boresight-to-target angle (deg)")
+    ax.axhline(max_angle, linestyle="--", label="Synthetic readiness limit (deg)")
+    ax.fill_between(t/60, 0, np.maximum(angle, max_angle),
+                    where=access, alpha=0.08, label="Ground geometrically accessible")
+    ax.set(xlabel="Elapsed model time (min)", ylabel="Pointing angular error (deg)",
+           title="ADCS 01: actual rigid-body boresight, not ideal AttGuid")
+    ax.grid(True)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(output / "adcs_pointing.png", dpi=150)
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(t/60, torque_norm, label="Commanded ideal torque magnitude")
+    ax.set(xlabel="Elapsed model time (min)", ylabel="Torque (N m)",
+           title="ADCS 01: MRP feedback request (no hardware saturation)")
+    ax.grid(True)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(output / "adcs_torque.png", dpi=150)
+    plt.close(fig)
+
     report = {
         "model": "Basilisk rigid-body orientation with ideal continuous external torque and perfect simpleNav",
         "samples": n,
