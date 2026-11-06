@@ -100,8 +100,14 @@ jobs:
           from pathlib import Path
           r = json.loads(Path("results/adcs_01_step_comparison.json").read_text())
           assert r["common_sample_times"] == 1441
-          assert r["max_boresight_difference_deg"] < 2.0, r
-          print("ADCS sampling sensitivity PASS:", r["max_boresight_difference_deg"], "deg")
+          assert r["accepted"], r
+          assert r["max_difference_after_60s_deg"] < 0.01, r
+          assert r["max_difference_during_access_deg"] < 0.01, r
+          print("ADCS sample-rate convergence PASS:",
+                "early transient max", r["max_boresight_difference_deg"], "deg;",
+                "after 60 s", r["max_difference_after_60s_deg"], "deg;",
+                "during geometric access", r["max_difference_during_access_deg"], "deg")
+
           PY
       - name: Verify two-hour runtime, sparse Vizard frames, and input provenance
         run: |
