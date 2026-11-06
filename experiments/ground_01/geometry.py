@@ -39,28 +39,54 @@ def elevation_from_inertial(
 
 
 def access_windows(times_s: list[float], access: list[bool]) -> list[dict]:
-    """Extract sample-resolved access windows; limits uncertain by one step."""
-    if not times_s or len(times_s)!=len(access):
+    """Extract sampled windows and conservative crossing-time bounds.
+
+    Assumes one continuous entrance/exit around each sampled access run,
+    with no undetected multiple threshold crossings between samples.
+    The first/last accessible samples are NOT exact threshold times.
+    """
+    if not times_s or len(times_s) != len(access):
         raise ValueError("Expected same-length nonempty time and access series")
-    if any(b<=a for a,b in zip(times_s,times_s[1:])):
+    if any(b <= a for a, b in zip(times_s, times_s[1:])):
         raise ValueError("Times must strictly increase")
-    out=[]
-    start=None
-    for idx,(t,a) in enumerate(zip(times_s,access)):
-        if a and start is None:
-            start=t
-        if not a and start is not None:
-            out.append({"first_access_sample_s":start,
-                        "first_inaccessible_sample_s":t,
-                        "duration_upper_bound_s":t-start,
-                        "window_start_clipped":start==times_s[0],
-                        "window_end_clipped":False})
-            start=None
-    if start is not None:
-        step=times_s[-1]-times_s[-2] if len(times_s)>1 else 0.0
-        out.append({"first_access_sample_s":start,
-                    "first_inaccessible_sample_s":times_s[-1]+step,
-                    "duration_upper_bound_s":times_s[-1]+step-start,
-                    "window_start_clipped":start==times_s[0],
-                    "window_end_clipped":True})
-    return out
+
+    def describe(start_idx: int, end_exclusive: int) -> dict:
+        first = times_s[start_idx]
+        last = times_s[end_exclusive - 1]
+        previous = times_s[start_idx - 1] if start_idx else None
+        following = times_s[end_exclusive] if end_exclusive < len(times_s) else None
+        clipped_start = previous is None
+        clipped_end = following is None
+        return {
+            "first_access_sample_s": first,
+            "last_access_sample_s": last,
+            "previous_inaccessible_sample_s": previous,
+            "first_inaccessible_sample_s": following,
+            # The true onset is between (previous, first] if un-clipped.
+            "start_bound_earliest_s": previous,
+            "start_bound_latest_s": first,
+            # The true exit is between (last, following] if un-clipped.
+            "end_bound_earliest_s": last,
+            "end_bound_latest_s": following,
+            "duration_lower_bound_s": last - first,
+            # Previously this was following-first, which is NOT an upper bound:
+            # onset may occur earlier than the first accessible sample.
+            "duration_upper_bound_s": (
+                following - previous if not clipped_start and not clipped_end
+                else None
+            ),
+            "window_start_clipped": clipped_start,
+            "window_end_clipped": clipped_end,
+        }
+
+    windows = []
+    start_idx = None
+    for i, available in enumerate(access):
+        if available and start_idx is None:
+            start_idx = i
+        elif not available and start_idx is not None:
+            windows.append(describe(start_idx, i))
+            start_idx = None
+    if start_idx is not None:
+        windows.append(describe(start_idx, len(times_s)))
+    return windows
