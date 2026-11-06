@@ -58,8 +58,16 @@ def true_boresight_error_deg(
     C = mrp_dcm_BN(sigma_BN)
     # [NB]=[BN].T, thus (B -> N) components indexed as C[j][i].
     b_inertial = tuple(sum(C[i][j]*b[i] for i in range(3)) for j in range(3))
-    dot = sum(a*b for a,b in zip(b_inertial, los)) / length
-    return math.degrees(math.acos(max(-1.0, min(1.0, dot))))
+    # atan2(||b x LOS||, b·LOS) is stable close to 0 and 180 degrees:
+    # acos(dot) loses accuracy when dot rounds to almost exactly +/-1.
+    dot = sum(a*v for a,v in zip(b_inertial, los)) / length
+    cross = (
+        b_inertial[1]*los[2] - b_inertial[2]*los[1],
+        b_inertial[2]*los[0] - b_inertial[0]*los[2],
+        b_inertial[0]*los[1] - b_inertial[1]*los[0],
+    )
+    sine = _norm(cross) / length
+    return math.degrees(math.atan2(sine, dot))
 
 
 def dcm_orthogonality_error(sigma_BN: Sequence[float]) -> float:
