@@ -77,6 +77,10 @@ def main() -> None:
         "--viz", action="store_true",
         help="Also create a Vizard playback with the rotating Earth and target marker",
     )
+    parser.add_argument(
+        "--payload", action="store_true",
+        help="Use Basilisk instrument to make one synthetic 1 MB product under ideal pointing",
+    )
     args = parser.parse_args()
     params=json.loads(CONF.read_text(encoding="utf-8"))
     orbit_config=(CONF.parent/params["orbit_config_path"]).resolve()
@@ -168,6 +172,15 @@ def main() -> None:
     access_rec=target.accessOutMsgs[0].recorder()
     for recorder in (sc_rec,ground_rec,access_rec):
         sim.AddModelToTask(task,recorder,ModelPriority=0)
+
+    payload_cfg = None
+    payload_command_rec = None
+    payload_data_rec = None
+    if args.payload:
+        from experiments.payload_01.integration import attach
+        payload_cfg, payload_command_rec, payload_data_rec = attach(
+            sim, task, target.accessOutMsgs[0], step
+        )
 
     # Vizard is optional so its native file writer never blocks basic physics.
     # Explicit .bin in ASCII-only LOCALAPPDATA avoids the Windows Cyrillic path
@@ -282,6 +295,30 @@ def main() -> None:
     visibility_mismatch=int(np.sum(access[robust]!=expected_access[robust]))
 
     windows=access_windows(times.tolist(),access.tolist())
+    payload_evidence = None
+    if args.payload:
+        from experiments.payload_01.accounting import validate_generation, save_evidence
+
+        commands = np.asarray(payload_command_rec.deviceCmd, dtype=np.int64)
+        rates = np.asarray(payload_data_rec.baudRate, dtype=np.float64)
+        data_times = np.asarray(payload_data_rec.times(), dtype=np.float64) * 1e-9
+        command_times = np.asarray(payload_command_rec.times(), dtype=np.float64) * 1e-9
+        if not (len(commands) == len(rates) == len(times)
+                and np.allclose(data_times, times, rtol=0, atol=1e-9)
+                and np.allclose(command_times, times, rtol=0, atol=1e-9)):
+            raise RuntimeError("Instrument time series are not synchronized with ground visibility")
+        events = validate_generation(
+            times.tolist(), access.tolist(), commands.tolist(),
+            rates.tolist(), step, payload_cfg["bytes_per_product"] * 8
+        )
+        save_evidence(ROOT / "results" / "payload_01", payload_cfg, step, events)
+        payload_evidence = {
+            "experiment": "Payload 01",
+            "products_generated": len(events),
+            "total_data_bits_generated": sum(e["product_bits"] for e in events),
+            "data_destination": "none; memory and radio are not connected",
+            "report": "results/payload_01/summary.json",
+        }
     with (OUTPUT/"access.csv").open("w",newline="",encoding="utf-8") as handle:
         writer=csv.writer(handle)
         writer.writerow(["time_s","sc_x_m","sc_y_m","sc_z_m",
@@ -313,6 +350,7 @@ def main() -> None:
         "max_elevation_deg":float(np.max(np.degrees(elev))),
         "minimum_slant_range_km":float(np.min(ranges)/1000),
         "windows":windows,
+        "payload": payload_evidence,
         "vizard": {
             "requested": bool(args.viz),
             "status": viz_status,
@@ -368,6 +406,13 @@ def main() -> None:
         if not viz_file.is_file() or viz_file.stat().st_size <= 0:
             raise RuntimeError("Vizard was requested but no non-empty playback file was written")
     print("Results: results/ground_01")
+    if payload_evidence:
+        print(
+            f"Payload 01: {payload_evidence['products_generated']} synthetic product(s), "
+            f"{payload_evidence['total_data_bits_generated']} bits generated; "
+            "NOT stored or delivered"
+        )
+        print("Payload evidence: results/payload_01/summary.json, events.csv")
     if not summary["checks_passed"]:
         raise SystemExit("Ground 01 geometric validation failed; inspect summary.json")
 
