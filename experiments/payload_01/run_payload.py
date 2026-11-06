@@ -20,7 +20,7 @@ def main() -> None:
         cwd=ROOT,
         check=True,
     )
-    print("Payload 01 experiment finished; examine results/payload_01/events.csv")
+    print("Payload 01 finished. See the Payload evidence path printed by Ground 01 above.")
 
 
 if __name__ == "__main__":
