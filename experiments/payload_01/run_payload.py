@@ -15,7 +15,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def main() -> None:
     subprocess.run(
-        [sys.executable, "-m", "experiments.ground_01.run_ground", "--payload"],
+        [sys.executable, "-m", "experiments.ground_01.run_ground",
+         "--payload", *sys.argv[1:]],
         cwd=ROOT,
         check=True,
     )
