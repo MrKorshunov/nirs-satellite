@@ -83,6 +83,10 @@ def main() -> None:
         "--payload", action="store_true",
         help="Use Basilisk instrument to make one synthetic 1 MB product under ideal pointing",
     )
+    parser.add_argument(
+        "--adcs", action="store_true",
+        help="Track rotating-Earth target with simulated rigid-body attitude and ideal torque",
+    )
     duration = parser.add_mutually_exclusive_group()
     duration.add_argument("--duration-hours", type=float, help="Simulation horizon in hours")
     duration.add_argument("--duration-days", type=float, help="Simulation horizon in days")
@@ -103,6 +107,11 @@ def main() -> None:
     parser.add_argument("--plan-only", action="store_true",
                         help="Show validated plan and quit without running simulation")
     args = parser.parse_args()
+    if args.adcs and args.payload:
+        parser.error(
+            "The original Payload 01 assumes perfect pointing. ADCS 01 first "
+            "validates actual attitude separately; combined imaging is a later milestone."
+        )
     ground_config_bytes = CONF.read_bytes()
     params=json.loads(ground_config_bytes)
     ground_config_sha=hashlib.sha256(ground_config_bytes).hexdigest()
@@ -140,13 +149,14 @@ def main() -> None:
         duration_hours=args.duration_hours,
         duration_days=args.duration_days,
         orbits=args.orbits,
-        step_s=args.step_s,
+        step_s=(0.5 if args.adcs and args.step_s is None else args.step_s),
         viz_mode=args.viz_mode,
         legacy_viz=args.viz,
         viz_step_s=args.viz_step_s,
         speed=args.speed,
         live_port=args.live_port,
-        output_name=args.output_name,
+        output_name=("adcs_01" if args.adcs and args.output_name == "ground_01"
+                     else args.output_name),
         allow_large_run=args.allow_large_run,
     )
     preview = {
@@ -169,6 +179,17 @@ def main() -> None:
         },
         "accuracy_note": "Two-body circular orbit + synthetic Earth rotation, no UTC",
     }
+    if args.adcs:
+        from experiments.adcs_01.integration import CONFIG as ADCS_CONFIG, validate_adcs_config
+        adcs_preview = json.loads(ADCS_CONFIG.read_text(encoding="utf-8"))
+        validate_adcs_config(adcs_preview, plan.step_s)
+        preview["input_preview"]["adcs_initial_sigma_BN_mrp"] = adcs_preview["initial_sigma_BN_mrp"]
+        preview["input_preview"]["adcs_initial_omega_BN_B_rad_s"] = adcs_preview["initial_omega_BN_B_rad_s"]
+        preview["input_preview"]["adcs_boresight_B"] = adcs_preview["instrument_boresight_B"]
+        preview["input_preview"]["adcs_feedback_K_Nm"] = adcs_preview["feedback_gain_K_Nm"]
+        preview["input_preview"]["adcs_rate_gain_P_Nm_s"] = adcs_preview["rate_gain_P_Nm_s"]
+        preview["input_sources"]["adcs"] = "experiments/adcs_01/config.json (synthetic)"
+        preview["accuracy_note"] += "; ideal navigation and unlimited torque (no real actuators)"
     if args.payload:
         payload_path = ROOT / "experiments" / "payload_01" / "config.json"
         payload_plan = json.loads(payload_path.read_text(encoding="utf-8"))
@@ -260,6 +281,13 @@ def main() -> None:
     target.addSpacecraftToModel(sat.scStateOutMsg)
     target.planetInMsg.subscribeTo(eph.planetOutMsgs[0])
     sim.AddModelToTask(task,target,ModelPriority=100)
+
+    adcs_components = None
+    if args.adcs:
+        from experiments.adcs_01.integration import attach as attach_adcs
+        adcs_components = attach_adcs(
+            sim, task, sat, target, orbit_cfg, step
+        )
 
     sc_rec=sat.scStateOutMsg.recorder()
     ground_rec=target.currentGroundStateOutMsg.recorder()
@@ -428,6 +456,38 @@ def main() -> None:
     visibility_mismatch=int(np.sum(access[robust]!=expected_access[robust]))
 
     windows=access_windows(times.tolist(),access.tolist())
+    adcs_evidence = None
+    if adcs_components is not None:
+        from experiments.adcs_01.analysis import analyse_run
+        guidance_rec = adcs_components.guidance_recorder
+        torque_rec = adcs_components.torque_recorder
+        nav_rec = adcs_components.nav_recorder
+
+        # Ground, physical attitude, guidance and torque are all generated at
+        # the same dynamics cadence. Reject any unaligned recorder histories.
+        for record in (guidance_rec, torque_rec, nav_rec):
+            tt = np.asarray(record.times(), dtype=float) * 1e-9
+            if tt.shape != times.shape or not np.allclose(tt, times, rtol=0, atol=1e-9):
+                raise RuntimeError("ADCS guidance/torque recorder is out of sync with physical states")
+        adcs_evidence = analyse_run(
+            time_s=times,
+            position_N_m=rs,
+            target_N_m=rg,
+            sigma_BN=np.asarray(sc_rec.sigma_BN, dtype=float),
+            guidance_sigma_BR=np.asarray(guidance_rec.sigma_BR, dtype=float),
+            guidance_omega_BR_B=np.asarray(guidance_rec.omega_BR_B, dtype=float),
+            torque_Nm=np.asarray(torque_rec.torqueRequestBody, dtype=float),
+            has_access=access,
+            config=adcs_components.config,
+            output=output,
+        )
+        print(
+            "ADCS pointing: initial boresight error "
+            f"{adcs_evidence['initial_boresight_error_deg']:.3f} deg; "
+            f"minimum {adcs_evidence['minimum_boresight_error_deg']:.3f} deg; "
+            f"ready during access {adcs_evidence['pointing_ready_samples_during_access']} samples",
+            flush=True,
+        )
     payload_evidence = None
     if args.payload:
         from experiments.payload_01.accounting import validate_generation, save_evidence
@@ -493,6 +553,7 @@ def main() -> None:
         "minimum_slant_range_km":float(np.min(ranges)/1000),
         "windows":windows,
         "payload": payload_evidence,
+        "adcs": adcs_evidence,
         "vizard": {
             "requested": plan.viz_mode != "off",
             "mode": plan.viz_mode,
@@ -539,6 +600,11 @@ def main() -> None:
     if args.payload:
         from experiments.payload_01.integration import CONFIG as PAYLOAD_CONFIG
         input_files["payload_config"] = (PAYLOAD_CONFIG, payload_cfg, payload_config_sha)
+    if adcs_components is not None:
+        from experiments.adcs_01.integration import CONFIG as ADCS_CONFIG
+        input_files["adcs_config"] = (
+            ADCS_CONFIG, adcs_components.config, adcs_components.config_sha256
+        )
     write_run_explanation(
         output=output,
         plan=plan.as_dict(),
@@ -551,6 +617,9 @@ def main() -> None:
             "Live mode requires Vizard DirectComm; no stand-alone live test is performed in CI",
             "Ground 01 tracks only one target; longer windows do not imply additional real imaging",
             "Payload 01 controller captures only one synthetic product per whole run",
+            ("ADCS 01 simulates rigid-body pointing but uses truth-like navigation and "
+             "an unlimited ideal external control torque; no wheel hardware or real camera"
+             if args.adcs else "ADCS not connected, ideal pointing only if Payload is selected"),
         ],
     )
     print("Ground 01 samples:",len(times))
@@ -576,6 +645,8 @@ def main() -> None:
             raise RuntimeError("Vizard was requested but no non-empty playback file was written")
     print(f"Results: results/{plan.output_name}")
     print("Input provenance and definitions: run_manifest.json and RESULTS_EXPLAINED.md")
+    if adcs_evidence:
+        print("ADCS diagnostics: adcs_states.csv and adcs_summary.json")
     if payload_evidence:
         print(
             f"Payload 01: {payload_evidence['products_generated']} synthetic product(s), "
