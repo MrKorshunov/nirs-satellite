@@ -14,3 +14,6 @@ orbit_error.txt
 /results/orbit_01_step10/
 /results/orbit_01_step05/
 /results/orbit_01_convergence.json
+
+# Generated data from ground-target simulation
+/results/ground_01/
