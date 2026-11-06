@@ -38,6 +38,22 @@ jobs:
         run: python -m experiments.orbit_01.validate_orbit
       - name: Compare orbital propagation steps with analytical reference
         run: python -m experiments.orbit_01.compare_steps
+      - name: Run Ground 01 with Basilisk on rotating Earth
+        run: python -m experiments.ground_01.run_ground
+      - name: Verify ground access output
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("results/ground_01")
+          d=json.loads((p/"summary.json").read_text(encoding="utf-8"))
+          assert d["checks_passed"], d["checks"]
+          assert d["samples"] >= 100
+          assert len(d["windows"]) >= 1, d
+          for name in ("access.csv","elevation.png","slant_range.png"):
+              assert (p/name).is_file(), name
+          print("Ground 01 smoke verified:", len(d["windows"]), "window(s)")
+          PY
       - name: Verify outputs and numerical invariants
         run: |
           python - <<'PY'
@@ -88,6 +104,11 @@ jobs:
             }
             python -m experiments.orbit_01.validate_orbit
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            python -m experiments.ground_01.run_ground
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $ground = Get-Content '.\\results\\ground_01\\summary.json' -Raw | ConvertFrom-Json
+            if (-not $ground.checks_passed) { throw 'Ground access numerical checks failed' }
+            Write-Output "Ground 01 Windows: $($ground.windows.Count) access window(s)"
             Write-Output "Windows Cyrillic directory: physical orbit OK"
             python -m experiments.orbit_01.run_orbit --viz
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
