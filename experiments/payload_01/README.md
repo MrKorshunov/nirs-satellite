@@ -31,4 +31,9 @@ notepad .\results\payload_01\events.csv
 Программные источники: [официальный интеграционный пример Basilisk 2.12.2](https://github.com/AVSLab/basilisk/blob/v2.12.2/examples/scenarioGroundLocationImaging.py), [simpleInstrument](https://github.com/AVSLab/basilisk/blob/v2.12.2/src/simulation/onboardDataHandling/instrument/simpleInstrument/simpleInstrument.rst), [simpleInstrumentController](https://github.com/AVSLab/basilisk/blob/v2.12.2/src/fswAlgorithms/sensorInterfaces/simpleInstrumentController/simpleInstrumentController.rst). Используем API, не копируем исходный код сторонней библиотеки.
 
 ## Статус
-**GitHub Actions #42255946704: автоматический запуск Basilisk успешно выполнен на Linux и Windows (включая путь с кириллицей).** Получен 1 синтетический продукт 1 000 000 байт, независимый учёт PASS, все три задания CI успешны. **На Windows пользователя эксперимент ещё не запускался** — после получения его вывода зафиксируем локальную проверку. Это не физическая валидация реальной камеры.
+**GitHub Actions #42255946704: автоматический запуск Basilisk успешно выполнен на Linux и Windows (включая путь с кириллицей).** Получен 1 синтетический продукт 1 000 000 байт, независимый учёт PASS, все три задания CI успешны. **Payload 01 подтверждён пользователем на Windows (06.11.2026).** Сценарий остаётся синтетическим и не подтверждает работу реального оптического прибора. Это не физическая валидация реальной камеры.
+
+
+## Длительность и учёт начальных данных (PR #11)
+
+Скрипт `run_payload.py` передаёт параметры `--duration-hours`, `--duration-days`, `--viz-mode`, `--viz-step-s` и `--output-name` физической модели Ground 01. См. [RUNTIME_AND_INPUTS.md](../../docs/RUNTIME_AND_INPUTS.md). **Вне зависимости от числа витков формируется один условный продукт за запуск:** автоматически повторять съёмку на каждом следующем пролёте текущая версия не умеет. Для именованных запусков результаты Payload получают отдельный каталог.

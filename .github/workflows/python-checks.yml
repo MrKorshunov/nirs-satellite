@@ -53,6 +53,67 @@ jobs:
           assert Path("results/payload_01/events.csv").is_file()
           print("Payload 01 synthetic generation: PASS", r["total_data_bytes_generated"], "bytes")
           PY
+      - name: Verify two-hour runtime, sparse Vizard frames, and input provenance
+        run: |
+          python -m experiments.ground_01.run_ground --duration-hours 2 --viz-mode file --viz-step-s 60 --output-name ground_01_2h
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          baseline = Path("results/ground_01")
+          current = Path("results/ground_01_2h")
+          d = json.loads((current/"summary.json").read_text(encoding="utf-8"))
+          m = json.loads((current/"run_manifest.json").read_text(encoding="utf-8"))
+          assert d["requested_duration_s"] == 7200, d
+          assert d["samples"] == 721 and d["last_sample_time_s"] == 7200
+          assert d["checks_passed"], d["checks"]
+          assert d["vizard"]["file_created"] and d["vizard"]["visualization_step_s"] == 60
+          assert m["runtime"]["expected_viz_frames"] == 121
+          assert m["inputs"]["ground_config"]["sha256"] and m["inputs"]["orbit_config"]["values"]
+          assert (current/"RESULTS_EXPLAINED.md").is_file()
+          with (baseline/"access.csv").open(newline="") as f:
+              a = list(csv.DictReader(f))
+          with (current/"access.csv").open(newline="") as f:
+              b = list(csv.DictReader(f))
+          assert len(a) == 568 and len(b) == 721
+          for old, new in zip(a, b):
+              assert old["has_access"] == new["has_access"]
+              assert abs(float(old["elevation_deg"])-float(new["elevation_deg"])) < 1e-7
+          print("Ground two-hour horizon and first-orbit invariance: PASS")
+          PY
+      - name: Check full-day numerical Ground 01 without visualization
+        run: |
+          python -m experiments.ground_01.run_ground --duration-days 1 --output-name ground_01_day1
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("results/ground_01_day1")
+          d = json.loads((p/"summary.json").read_text(encoding="utf-8"))
+          m = json.loads((p/"run_manifest.json").read_text(encoding="utf-8"))
+          assert d["samples"] == 8641 and d["last_sample_time_s"] == 86400
+          assert d["checks_passed"], d["checks"]
+          assert d["access_samples"] > 0
+          assert m["runtime"]["duration_source"] == "days"
+          assert m["runtime"]["horizon_s"] == 86400
+          assert len(m["inputs"]["ground_config"]["sha256"]) == 64
+          print("Ground full day: PASS; windows =", len(d["windows"]))
+          PY
+      - name: Validate live configuration without network/Vizard
+        run: |
+          python - <<'PY'
+          import json, subprocess, sys
+          p = subprocess.run(
+              [sys.executable, "-m", "experiments.ground_01.run_ground",
+               "--duration-days", "1", "--viz-mode", "live",
+               "--speed", "50", "--viz-step-s", "30", "--plan-only"],
+              capture_output=True, text=True, check=True
+          )
+          d = json.loads(p.stdout)
+          assert d["horizon_s"] == 86400
+          assert d["viz_mode"] == "live" and d["live_speed"] == 50
+          assert d["expected_samples"] == 8641
+          assert d["expected_viz_frames"] == 2881
+          print("Live plan validation: PASS (no Vizard connection attempted)")
+          PY
       - name: Record Ground 01 target and rotating Earth for Vizard
         run: |
           python -m experiments.ground_01.run_ground --viz
@@ -102,6 +163,21 @@ jobs:
               assert (p / filename).exists(), filename
           print("Basilisk orbit smoke OK", d["position_sample_count"], "samples")
           PY
+      - name: Preserve long-run Ground 01 numerical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ground-runtime-01-linux
+          path: |
+            results/ground_01_2h/summary.json
+            results/ground_01_2h/run_manifest.json
+            results/ground_01_2h/RESULTS_EXPLAINED.md
+            results/ground_01_2h/access.csv
+            results/ground_01_day1/summary.json
+            results/ground_01_day1/run_manifest.json
+            results/ground_01_day1/RESULTS_EXPLAINED.md
+            results/ground_01_day1/access.csv
+          if-no-files-found: warn
       - name: Preserve numerical evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -143,6 +219,24 @@ jobs:
             $ground = Get-Content '.\\results\\ground_01\\summary.json' -Raw | ConvertFrom-Json
             if (-not $ground.checks_passed) { throw 'Ground access numerical checks failed' }
             Write-Output "Ground 01 Windows: $($ground.windows.Count) access window(s)"
+            python -m experiments.ground_01.run_ground --duration-hours 2 --output-name ground_01_2h
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $long = Get-Content '.\results\ground_01_2h\summary.json' -Raw | ConvertFrom-Json
+            $manifest = Get-Content '.\results\ground_01_2h\run_manifest.json' -Raw | ConvertFrom-Json
+            if ($long.samples -ne 721 -or $long.requested_duration_s -ne 7200 -or -not $long.checks_passed) {
+              throw 'Two-hour Ground 01 simulation did not match the requested horizon'
+            }
+            if ($manifest.inputs.ground_config.sha256.Length -ne 64) {
+              throw 'Missing input configuration provenance'
+            }
+            Write-Output "Two-hour Ground 01 Windows: $($long.samples) samples, manifest present"
+            python -m experiments.ground_01.run_ground --duration-days 1 --output-name ground_01_day1
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $day = Get-Content '.\results\ground_01_day1\summary.json' -Raw | ConvertFrom-Json
+            if ($day.samples -ne 8641 -or $day.last_sample_time_s -ne 86400 -or -not $day.checks_passed) {
+              throw '24-hour Ground 01 run failed'
+            }
+            Write-Output "24-hour Ground 01 Windows: $($day.samples) samples"
             python -m experiments.payload_01.run_payload
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $payload = Get-Content '.\results\payload_01\summary.json' -Raw | ConvertFrom-Json

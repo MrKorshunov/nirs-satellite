@@ -7,6 +7,7 @@ not a computed pointing result.
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 from pathlib import Path
 
@@ -19,7 +20,9 @@ CONFIG = Path(__file__).with_name("config.json")
 
 
 def attach(sim, task: str, access_out_msg, step_s: float):
-    cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
+    cfg_raw = CONFIG.read_bytes()
+    cfg = json.loads(cfg_raw)
+    cfg_sha_at_read = hashlib.sha256(cfg_raw).hexdigest()
     if not str(cfg["provenance"]).startswith("SYNTHETIC"):
         raise ValueError("Payload data must be marked SYNTHETIC")
     bits = cfg["bytes_per_product"] * 8
@@ -52,4 +55,4 @@ def attach(sim, task: str, access_out_msg, step_s: float):
     data_record = instrument.nodeDataOutMsg.recorder()
     sim.AddModelToTask(task, command_record, ModelPriority=0)
     sim.AddModelToTask(task, data_record, ModelPriority=0)
-    return cfg, command_record, data_record
+    return cfg, command_record, data_record, cfg_sha_at_read
