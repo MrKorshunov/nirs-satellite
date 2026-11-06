@@ -40,6 +40,19 @@ jobs:
         run: python -m experiments.orbit_01.compare_steps
       - name: Run Ground 01 with Basilisk on rotating Earth
         run: python -m experiments.ground_01.run_ground
+      - name: Generate one synthetic instrument data product with Basilisk
+        run: |
+          python -m experiments.payload_01.run_payload
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path("results/payload_01/summary.json").read_text(encoding="utf-8"))
+          assert r["product_count"] == 1, r
+          assert r["total_data_bytes_generated"] == 1000000, r
+          assert r["products"][0]["source_access"] is True
+          assert Path("results/payload_01/events.csv").is_file()
+          print("Payload 01 synthetic generation: PASS", r["total_data_bytes_generated"], "bytes")
+          PY
       - name: Record Ground 01 target and rotating Earth for Vizard
         run: |
           python -m experiments.ground_01.run_ground --viz
@@ -130,6 +143,13 @@ jobs:
             $ground = Get-Content '.\\results\\ground_01\\summary.json' -Raw | ConvertFrom-Json
             if (-not $ground.checks_passed) { throw 'Ground access numerical checks failed' }
             Write-Output "Ground 01 Windows: $($ground.windows.Count) access window(s)"
+            python -m experiments.payload_01.run_payload
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $payload = Get-Content '.\results\payload_01\summary.json' -Raw | ConvertFrom-Json
+            if ($payload.product_count -ne 1 -or $payload.total_data_bytes_generated -ne 1000000) {
+              throw 'Payload 01 data-generation validation failed'
+            }
+            Write-Output "Payload 01 Windows: $($payload.total_data_bytes_generated) bytes produced"
             python -m experiments.ground_01.run_ground --viz
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $groundViz = Get-Content '.\results\ground_01\summary.json' -Raw | ConvertFrom-Json
