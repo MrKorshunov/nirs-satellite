@@ -1,5 +1,6 @@
 """Runtime planning and input provenance tests; no Basilisk installation needed."""
 import json
+import hashlib
 import math
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -97,7 +98,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             write_run_explanation(
                 output=root / "output",
                 plan=plan,
-                configs={"ground": (cfg, json.loads(cfg.read_text()))},
+                configs={"ground": (cfg, json.loads(cfg.read_text()), hashlib.sha256(cfg.read_bytes()).hexdigest())},
                 summary=summary,
                 software={"bsk": "2.12.2"},
                 notes=["not real satellite"],
