@@ -53,6 +53,45 @@ jobs:
           assert Path("results/payload_01/events.csv").is_file()
           print("Payload 01 synthetic generation: PASS", r["total_data_bytes_generated"], "bytes")
           PY
+      - name: Physical ADCS attitude tracking with independent LOS check
+        run: |
+          python -m experiments.ground_01.run_ground --duration-hours 0.2 --step-s 0.5 --output-name adcs_reference_no_torque
+          python -m experiments.adcs_01.run_adcs --viz-mode file --viz-step-s 10
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          base = Path("results/adcs_reference_no_torque")
+          p = Path("results/adcs_01")
+          g = json.loads((p/"summary.json").read_text(encoding="utf-8"))
+          a = json.loads((p/"adcs_summary.json").read_text(encoding="utf-8"))
+          manifest = json.loads((p/"run_manifest.json").read_text(encoding="utf-8"))
+          assert g["checks_passed"] and a["checks_passed"], (g["checks"], a)
+          assert g["samples"] == a["samples"] == 1441, (g["samples"], a["samples"])
+          assert g["vizard"]["file_created"], g["vizard"]
+          assert a["max_commanded_torque_Nm"] > 0
+          assert a["minimum_boresight_error_deg"] < a["initial_boresight_error_deg"]
+          assert a["maximum_mrp_dcm_orthogonality_error"] < 1e-10
+          assert len(manifest["inputs"]["adcs_config"]["sha256"]) == 64
+          for name in ("adcs_states.csv", "adcs_pointing.png", "adcs_torque.png",
+                       "adcs_summary.json", "RESULTS_EXPLAINED.md"):
+              assert (p/name).is_file(), name
+          with (base/"access.csv").open(newline="") as f:
+              reference = list(csv.DictReader(f))
+          with (p/"access.csv").open(newline="") as f:
+              actual = list(csv.DictReader(f))
+          assert len(reference) == len(actual) == 1441
+          assert all(x["has_access"] == y["has_access"] for x,y in zip(reference, actual))
+          max_position_difference = max(
+              sum((float(x[k])-float(y[k]))**2 for k in
+                   ("sc_x_m","sc_y_m","sc_z_m"))**0.5
+              for x,y in zip(reference, actual)
+          )
+          assert max_position_difference < 0.1, max_position_difference
+          print("ADCS 01 PASS:", a["initial_boresight_error_deg"],
+                a["minimum_boresight_error_deg"],
+                "Nm max:", a["max_commanded_torque_Nm"],
+                "m orbit difference:", max_position_difference)
+          PY
       - name: Verify two-hour runtime, sparse Vizard frames, and input provenance
         run: |
           python -m experiments.ground_01.run_ground --duration-hours 2 --viz-mode file --viz-step-s 60 --output-name ground_01_2h
@@ -163,6 +202,20 @@ jobs:
               assert (p / filename).exists(), filename
           print("Basilisk orbit smoke OK", d["position_sample_count"], "samples")
           PY
+      - name: Preserve physical ADCS 01 numerical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adcs-01-linux
+          path: |
+            results/adcs_01/summary.json
+            results/adcs_01/adcs_summary.json
+            results/adcs_01/adcs_states.csv
+            results/adcs_01/adcs_pointing.png
+            results/adcs_01/adcs_torque.png
+            results/adcs_01/run_manifest.json
+            results/adcs_01/RESULTS_EXPLAINED.md
+          if-no-files-found: warn
       - name: Preserve long-run Ground 01 numerical evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -244,6 +297,21 @@ jobs:
               throw 'Payload 01 data-generation validation failed'
             }
             Write-Output "Payload 01 Windows: $($payload.total_data_bytes_generated) bytes produced"
+            python -m experiments.adcs_01.run_adcs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $adcs = Get-Content '.\results\adcs_01\adcs_summary.json' -Raw | ConvertFrom-Json
+            $adcsGround = Get-Content '.\results\adcs_01\summary.json' -Raw | ConvertFrom-Json
+            $adcsManifest = Get-Content '.\results\adcs_01\run_manifest.json' -Raw | ConvertFrom-Json
+            if (-not $adcs.checks_passed -or -not $adcsGround.checks_passed -or
+                $adcs.samples -ne 1441 -or
+                $adcs.minimum_boresight_error_deg -ge $adcs.initial_boresight_error_deg -or
+                $adcs.max_commanded_torque_Nm -le 0) {
+              throw 'ADCS 01 attitude model validation failed'
+            }
+            if ($adcsManifest.inputs.adcs_config.sha256.Length -ne 64) {
+              throw 'ADCS 01 input origin not recorded'
+            }
+            Write-Output "ADCS 01 Windows: initial=$($adcs.initial_boresight_error_deg) min=$($adcs.minimum_boresight_error_deg) deg, real torque=$($adcs.max_commanded_torque_Nm) Nm"
             python -m experiments.ground_01.run_ground --viz
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $groundViz = Get-Content '.\results\ground_01\summary.json' -Raw | ConvertFrom-Json
