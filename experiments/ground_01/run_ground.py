@@ -199,17 +199,46 @@ def main() -> None:
             radial * math.sin(latitude),
         ], dtype=float)
         normal_fixed = r_ground_fixed / np.linalg.norm(r_ground_fixed)
+        # CRITICAL: Basilisk distinguishes planetName="earth_planet_data"
+        # from displayName="earth".  Vizard's GravBodyInfo.bodyName is built
+        # from displayName, so a location using planetName is orphaned and
+        # not visibly attached to the rendered Earth.
+        planet_display_name = str(earth.displayName)
+        available_viz_bodies = [str(body.bodyName) for body in viz.gravBodyInformation]
+        if planet_display_name not in available_viz_bodies:
+            raise RuntimeError(
+                "Vizard display body mismatch: "
+                f"{planet_display_name!r} absent from {available_viz_bodies!r}"
+            )
         vizSupport.addLocation(
             viz,
             stationName=str(tcfg["name"]),
-            parentBodyName=earth.planetName,
+            parentBodyName=planet_display_name,
             r_GP_P=r_ground_fixed,
             gHat_P=normal_fixed,
-            label="SYNTHETIC TARGET (14N 43E)",
-            markerScale=3.0,
-            color=[20, 240, 100, 255],
+            label="TARGET 14N 43E",
+            markerScale=15.0,
+            color=[255, 0, 255, 255],
+            isHidden=False,
+            fieldOfView=math.radians(160.0),
+            range=2_000_000.0,
         )
-        viz_status = "playback requested; synthetic ground marker attached"
+        # The marker and label are visual guides, NOT proof of actual imaging.
+        # The target line is always drawn, including when the Earth occludes
+        # the target: physical access remains defined by access.csv.
+        vizSupport.createTargetLine(
+            viz, toBodyName=str(tcfg["name"]),
+            lineColor=[255, 0, 255, 255],
+        )
+        viz.settings.showLocationLabels = 1
+        viz.settings.showLocationCones = -1
+        viz.settings.showLocationCommLines = -1
+        viz_location_names = [str(location.stationName) for location in viz.locations]
+        if str(tcfg["name"]) not in viz_location_names:
+            raise RuntimeError(
+                f"Vizard target marker was not registered: {viz_location_names!r}"
+            )
+        viz_status = "playback requested; high-visibility ground marker attached"
 
     period=orbital_period_s(elements.a,mu)
     print("Ground 01 configured. Initializing Basilisk...",flush=True)
@@ -291,6 +320,12 @@ def main() -> None:
             "file_created": bool(viz_file and viz_file.is_file()),
             "earth_attitude_source": "planetEphemeris planetOutMsgs[0] -> earth.planetBodyInMsg",
             "ground_location_source": "spherical body-fixed coordinates from config.json",
+            "parent_body_name": str(earth.displayName) if args.viz else None,
+            "planet_name_internal": str(earth.planetName) if args.viz else None,
+            "marker_name": str(tcfg["name"]) if args.viz else None,
+            "marker_color_rgba": [255, 0, 255, 255] if args.viz else None,
+            "marker_scale": 15.0 if args.viz else None,
+            "location_registered": bool(args.viz and str(tcfg["name"]) in viz_location_names),
         },
         "checks":{
             "max_elevation_difference_rad":max_el_error_rad,
