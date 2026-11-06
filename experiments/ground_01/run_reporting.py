@@ -5,7 +5,6 @@ No dependence on Basilisk. This does NOT assert physical accuracy of input data.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import hashlib
 import json
 from pathlib import Path
 import platform
@@ -42,15 +41,11 @@ RESULT_FIELDS = {
 }
 
 
-def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def write_run_explanation(
     *,
     output: Path,
     plan: dict,
-    configs: dict[str, tuple[Path, dict]],
+    configs: dict[str, tuple[Path, dict, str]],
     summary: dict,
     software: dict,
     notes: list[str],
@@ -69,10 +64,12 @@ def write_run_explanation(
         "inputs": {
             name: {
                 "path": str(path),
-                "sha256": _digest(path),
+                # Capture checksum when data is READ before propagation;
+                # re-reading at the end may hash a file edited mid-run.
+                "sha256": sha256_at_read,
                 "values": contents,
             }
-            for name, (path, contents) in configs.items()
+            for name, (path, contents, sha256_at_read) in configs.items()
         },
         "input_dictionary": {
             name: {"unit": unit, "origin": origin, "meaning": meaning}
