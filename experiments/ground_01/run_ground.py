@@ -209,12 +209,15 @@ def main() -> None:
             viz_dir.mkdir(parents=True, exist_ok=True)
             viz_file = viz_dir / f"{run.output_name}.bin"
 
-        # A separate lower-priority process decouples the Vizard frame cadence
-        # from the high-frequency physics/access model. Both share the SAME
-        # spacecraft state and planet orientation; no second propagator.
-        viz_process = sim.CreateNewProcess("vizProcess", priority=-10)
+        # Keep Vizard in the SAME Basilisk process as the physics tasks.
+        # It is a separate lower-priority task, so data only flow one way:
+        # physical model -> viz task, on the requested Vizard cadence.
+        # Multiple processes here introduce needless synchronization risk.
         viz_task = "vizTask"
-        viz_process.addTask(sim.CreateNewTask(viz_task, macros.sec2nano(run.viz_step_s)))
+        process.addTask(
+            sim.CreateNewTask(viz_task, macros.sec2nano(run.viz_step_s)),
+            taskPriority=-10,
+        )
         viz = vizSupport.enableUnityVisualization(
             sim, viz_task, sat,
             saveFile=str(viz_file) if viz_file else None,
