@@ -50,8 +50,15 @@ jobs:
           assert d["checks_passed"]
           assert d["vizard"]["requested"] and d["vizard"]["file_created"]
           assert d["vizard"]["earth_attitude_source"].startswith("planetEphemeris")
+          assert d["vizard"]["parent_body_name"] == "earth", d["vizard"]
+          assert d["vizard"]["planet_name_internal"] == "earth_planet_data", d["vizard"]
+          assert d["vizard"]["location_registered"] is True
+          assert d["vizard"]["marker_scale"] >= 10
           p = Path(d["vizard"]["output_file"])
           assert p.is_file() and p.stat().st_size > 0
+          # Protobuf output is not proof of on-screen visibility, but it must
+          # actually contain this marker, rather than merely a satellite.
+          assert d["vizard"]["marker_name"].encode() in p.read_bytes(), "Target marker missing in saved playback"
           print("Vizard Ground marker + rotating Earth playback written", p.stat().st_size)
           PY
       - name: Verify ground access output
@@ -128,6 +135,9 @@ jobs:
             $groundViz = Get-Content '.\results\ground_01\summary.json' -Raw | ConvertFrom-Json
             if (-not $groundViz.checks_passed -or -not $groundViz.vizard.file_created) {
               throw 'Ground 01 rotating Earth Vizard recording missing or geometry failed'
+            }
+            if (-not $groundViz.vizard.location_registered -or $groundViz.vizard.parent_body_name -ne 'earth') {
+              throw 'Ground marker is not linked to the actual Vizard Earth display body'
             }
             $vizFile = [string]$groundViz.vizard.output_file
             if (-not (Test-Path $vizFile)) { throw 'Ground 01 Vizard file not found' }
