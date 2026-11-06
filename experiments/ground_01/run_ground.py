@@ -21,7 +21,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from Basilisk.simulation import groundLocation, planetEphemeris, spacecraft
+from Basilisk.simulation import groundLocation, planetEphemeris, spacecraft, simSynch
+from Basilisk.architecture import astroConstants
 from Basilisk.utilities import (
     SimulationBaseClass, macros, orbitalMotion, simHelpers, simIncludeGravBody, vizSupport
 )
@@ -29,15 +30,15 @@ from Basilisk.utilities import (
 from experiments.ground_01.geometry import (
     access_windows, elevation_from_inertial, rotate_z, norm3
 )
+from experiments.ground_01.run_settings import build_plan
+from experiments.ground_01.run_reporting import write_run_explanation
 from nirs_satellite.orbit.analytical import orbital_period_s
 
 ROOT = Path(__file__).resolve().parents[2]
 CONF = Path(__file__).with_name("config.json")
-OUTPUT = ROOT / "results" / "ground_01"
-
 
 def draw_plots(times: np.ndarray, elevation_deg: np.ndarray, range_km: np.ndarray,
-               access: np.ndarray, limit_deg: float) -> None:
+               access: np.ndarray, limit_deg: float, output: Path) -> None:
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(times/60, elevation_deg, label="Ground target elevation")
     ax.axhline(limit_deg, linestyle="--", color="tab:orange",
@@ -50,7 +51,7 @@ def draw_plots(times: np.ndarray, elevation_deg: np.ndarray, range_km: np.ndarra
     ax.legend()
     ax.grid(True)
     fig.tight_layout()
-    fig.savefig(OUTPUT/"elevation.png", dpi=150)
+    fig.savefig(output/"elevation.png", dpi=150)
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(10,4))
@@ -65,7 +66,7 @@ def draw_plots(times: np.ndarray, elevation_deg: np.ndarray, range_km: np.ndarra
     ax.legend()
     ax.grid(True)
     fig.tight_layout()
-    fig.savefig(OUTPUT/"slant_range.png",dpi=150)
+    fig.savefig(output/"slant_range.png",dpi=150)
     plt.close(fig)
 
 
@@ -81,15 +82,35 @@ def main() -> None:
         "--payload", action="store_true",
         help="Use Basilisk instrument to make one synthetic 1 MB product under ideal pointing",
     )
+    duration = parser.add_mutually_exclusive_group()
+    duration.add_argument("--duration-hours", type=float, help="Simulation horizon in hours")
+    duration.add_argument("--duration-days", type=float, help="Simulation horizon in days")
+    duration.add_argument("--orbits", type=float, help="Simulation horizon in orbital periods")
+    parser.add_argument("--step-s", type=float, help="Dynamics time step; overrides config")
+    parser.add_argument("--viz-mode", choices=["off", "file", "live"], default="off",
+                        help="Off, pre-record .bin, or live Vizard DirectComm")
+    parser.add_argument("--viz-step-s", type=float,
+                        help="Vizard update cadence (seconds); integer multiple of dynamics step")
+    parser.add_argument("--speed", type=float,
+                        help="Live mode only: simulated seconds per real second (default 50)")
+    parser.add_argument("--live-port", type=int, default=5556,
+                        help="Local Vizard DirectComm TCP port; live mode only")
+    parser.add_argument("--output-name", default="ground_01",
+                        help="Result folder name under results/ (ASCII-safe)")
+    parser.add_argument("--allow-large-run", action="store_true",
+                        help="Explicitly permit >100000 saved integration samples")
+    parser.add_argument("--plan-only", action="store_true",
+                        help="Show validated plan and quit without running simulation")
     args = parser.parse_args()
     params=json.loads(CONF.read_text(encoding="utf-8"))
     orbit_config=(CONF.parent/params["orbit_config_path"]).resolve()
     orbit_cfg=json.loads(orbit_config.read_text(encoding="utf-8"))
     if not str(params["provenance"]).startswith("SYNTHETIC"):
         raise ValueError("First Ground experiment must be marked synthetic")
-    step=float(params["step_s"])
+    default_step=float(params["step_s"])
     n_orbits=float(params["number_of_orbits"])
-    if not (math.isfinite(step) and step>0 and math.isfinite(n_orbits) and n_orbits>0):
+    if not (math.isfinite(default_step) and default_step>0 and
+            math.isfinite(n_orbits) and n_orbits>0):
         raise ValueError("Invalid integration step or simulation horizon")
     tcfg=params["target"]
     ecfg=params["earth"]
@@ -101,12 +122,45 @@ def main() -> None:
     if not (radius>0 and -math.pi/2<=latitude<=math.pi/2 and
             -math.pi<=longitude<=math.pi and 0<=min_elevation<math.pi/2 and omega>0):
         raise ValueError("Invalid Earth/ground geometric parameters")
-    OUTPUT.mkdir(parents=True,exist_ok=True)
+    # The same Basilisk Earth gravitational parameter is used by
+    # gravBodyFactory.createEarth() later during the actual integration.
+    planned_period = orbital_period_s(
+        radius + float(orbit_cfg["initial_altitude_m"]),
+        float(astroConstants.MU_EARTH) * 1e9,
+    )
+    plan = build_plan(
+        default_orbits=n_orbits,
+        orbit_period_s=planned_period,
+        default_step_s=default_step,
+        duration_hours=args.duration_hours,
+        duration_days=args.duration_days,
+        orbits=args.orbits,
+        step_s=args.step_s,
+        viz_mode=args.viz_mode,
+        legacy_viz=args.viz,
+        viz_step_s=args.viz_step_s,
+        speed=args.speed,
+        live_port=args.live_port,
+        output_name=args.output_name,
+        allow_large_run=args.allow_large_run,
+    )
+    if args.plan_only:
+        print(json.dumps(plan.as_dict(), ensure_ascii=False, indent=2))
+        return
+    step = plan.step_s
+    output = ROOT / "results" / plan.output_name
+    output.mkdir(parents=True, exist_ok=True)
+    if plan.expected_samples >= 10_000:
+        print(
+            f"Long simulation: approximately {plan.expected_samples} saved states "
+            f"and {plan.expected_viz_frames} visualization frames",
+            flush=True,
+        )
 
     sim=SimulationBaseClass.SimBaseClass()
     process=sim.CreateNewProcess("groundProcess")
     task="groundTask"
-    process.addTask(sim.CreateNewTask(task,macros.sec2nano(step)))
+    process.addTask(sim.CreateNewTask(task,macros.sec2nano(step)),taskPriority=100)
 
     # A single Earth ephemeris with Earth as zeroBase is *centred* on Earth:
     # no heliocentric translation; orientation rotates with constant omega.
@@ -254,9 +308,16 @@ def main() -> None:
         viz_status = "playback requested; high-visibility ground marker attached"
 
     period=orbital_period_s(elements.a,mu)
-    print("Ground 01 configured. Initializing Basilisk...",flush=True)
+    if not math.isclose(period, planned_period, rel_tol=1e-12):
+        raise RuntimeError("Basilisk Earth mu differs from documented planning constant")
+    print(
+        f"Ground 01 configured: {plan.horizon_s:.3f} s ({plan.duration_source}), "
+        f"physics {step:g} s, Vizard {plan.viz_mode} every {plan.viz_step_s:g} s.",
+        flush=True,
+    )
+    print("Initializing Basilisk...",flush=True)
     sim.InitializeSimulation()
-    sim.ConfigureStopTime(macros.sec2nano(period*n_orbits))
+    sim.ConfigureStopTime(macros.sec2nano(plan.horizon_s))
     print("Computing ground access with rotating Earth...",flush=True)
     sim.ExecuteSimulation()
 
@@ -266,7 +327,7 @@ def main() -> None:
     elev=np.asarray(access_rec.elevation,dtype=np.float64)
     ranges=np.asarray(access_rec.slantRange,dtype=np.float64)
     access=np.asarray(access_rec.hasAccess,dtype=np.int64).astype(bool)
-    if len(times)<10 or rs.shape!=(len(times),3) or rg.shape!=rs.shape:
+    if len(times)<2 or rs.shape!=(len(times),3) or rg.shape!=rs.shape:
         raise RuntimeError("Basilisk recorders yielded inconsistent dimensions")
     if not np.all(np.isfinite(rs)) or not np.all(np.isfinite(rg)):
         raise RuntimeError("Nonfinite orbit or ground coordinates")
@@ -319,7 +380,7 @@ def main() -> None:
             "data_destination": "none; memory and radio are not connected",
             "report": "results/payload_01/summary.json",
         }
-    with (OUTPUT/"access.csv").open("w",newline="",encoding="utf-8") as handle:
+    with (output/"access.csv").open("w",newline="",encoding="utf-8") as handle:
         writer=csv.writer(handle)
         writer.writerow(["time_s","sc_x_m","sc_y_m","sc_z_m",
                          "ground_x_m","ground_y_m","ground_z_m",
@@ -330,7 +391,8 @@ def main() -> None:
             writer.writerow([float(t),*map(float,r_sat),
                              *map(float,r_ground),math.degrees(float(el)),
                              float(distance),int(visible)])
-    draw_plots(times,np.degrees(elev),ranges/1000,access,float(tcfg["minimum_elevation_deg"]))
+    draw_plots(times,np.degrees(elev),ranges/1000,access,
+               float(tcfg["minimum_elevation_deg"]),output)
 
     summary={
         "scenario":params,
@@ -344,6 +406,10 @@ def main() -> None:
             "Window boundaries sampled at simulation cadence, uncertainty up to one step"
         ],
         "orbit_period_s":period,
+        "run_plan": plan.as_dict(),
+        "requested_duration_s": plan.horizon_s,
+        "last_sample_time_s": float(times[-1]),
+        "physics_step_s": step,
         "earth_mu_m3_s2":mu,
         "samples":len(times),
         "access_samples":int(np.sum(access)),
@@ -380,8 +446,8 @@ def main() -> None:
     }
     summary["checks_passed"]=all(
         summary["checks"][key]<=limit for key,limit in summary["check_limits"].items()
-    ) and bool(windows)
-    (OUTPUT/"summary.json").write_text(
+    )
+    (output/"summary.json").write_text(
         json.dumps(summary,ensure_ascii=False,indent=2),encoding="utf-8"
     )
     print("Ground 01 samples:",len(times))
@@ -405,7 +471,7 @@ def main() -> None:
         print(f"Vizard file: {viz_file} (exists={viz_file.is_file()})")
         if not viz_file.is_file() or viz_file.stat().st_size <= 0:
             raise RuntimeError("Vizard was requested but no non-empty playback file was written")
-    print("Results: results/ground_01")
+    print(f"Results: results/{plan.output_name}")
     if payload_evidence:
         print(
             f"Payload 01: {payload_evidence['products_generated']} synthetic product(s), "
