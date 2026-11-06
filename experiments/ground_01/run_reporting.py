@@ -26,6 +26,13 @@ INPUT_FIELDS = {
     "step_s": ("s", "ground_01/config.json or CLI", "Dynamics and access evaluation cadence, NOT Vizard playback speed"),
     "number_of_orbits": ("orbit", "ground_01/config.json or CLI", "Default horizon; CLI hours/days may override"),
     "bytes_per_product": ("bytes", "payload_01/config.json", "Synthetic image product size, NOT measured camera output"),
+    "initial_sigma_BN_mrp": ("1", "adcs_01/config.json", "Initial spacecraft attitude, modified Rodrigues parameters"),
+    "initial_omega_BN_B_rad_s": ("rad/s", "adcs_01/config.json", "Initial body rate with respect to inertial frame"),
+    "instrument_boresight_B": ("1", "adcs_01/config.json", "Unit direction of the imaginary sensor in spacecraft body coordinates"),
+    "feedback_gain_K_Nm": ("N m", "adcs_01/config.json", "Synthetic feedback gain multiplying dimensionless MRP error"),
+    "rate_gain_P_Nm_s": ("N m s", "adcs_01/config.json", "Synthetic feedback gain multiplying angular velocity error"),
+    "readiness_boresight_max_deg": ("deg", "adcs_01/config.json", "Synthetic upper angular-error limit for readiness flag"),
+    "readiness_tracking_rate_max_rad_s": ("rad/s", "adcs_01/config.json", "Synthetic upper angular-rate error limit for readiness flag"),
 }
 
 
@@ -37,6 +44,7 @@ RESULT_FIELDS = {
     "windows": ("s", "Sample-bounded access windows; boundaries uncertain within one dynamics step"),
     "checks_passed": ("boolean", "Internal numerical consistency checks, not validation of real orbit/imagery"),
     "payload": ("bits", "Synthetic data generated (when enabled), not stored or downlinked"),
+    "adcs": ("various", "ADCS commanded torque and actual pointing metrics, not hardware actuator validation"),
     "vizard": ("metadata", "Visualization settings; Vizard frames do not define dynamics accuracy"),
 }
 
@@ -88,6 +96,7 @@ def write_run_explanation(
             "minimum_slant_range_km": summary["minimum_slant_range_km"],
             "checks_passed": summary["checks_passed"],
             "payload": summary.get("payload"),
+            "adcs": summary.get("adcs"),
         },
         "limitations": notes,
     }
@@ -120,6 +129,7 @@ def write_run_explanation(
 - Окна геометрической доступности: **{len(summary['windows'])}**, границы по соседним отсчётам в `summary.json`.
 - Контроль расчёта: **{'PASS' if summary['checks_passed'] else 'FAIL'}**. Контроль НЕ равен внешней валидации.
 - Генерация данных: **{json.dumps(summary.get('payload'), ensure_ascii=False)}**. При наличии данные ещё не сохранены и не переданы.
+- Наведение: **{json.dumps({k: v for k, v in (summary.get('adcs') or {}).items() if k in ('initial_boresight_error_deg', 'minimum_boresight_error_deg', 'final_boresight_error_deg', 'max_commanded_torque_Nm', 'pointing_ready_samples_during_access')}, ensure_ascii=False)}**. Это фактическая динамика корпуса и идеальный командный момент без ограничений оборудования. При включённом ADCS см. `adcs_states.csv`, `adcs_summary.json`, `adcs_pointing.png`, `adcs_torque.png`.
 
 ## Где лежат исходные данные и сами результаты
 - `run_manifest.json` — точные входные JSON, SHA-256 файлов, версия среды, настройки запуска, словарь параметров.
