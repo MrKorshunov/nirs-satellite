@@ -322,7 +322,7 @@ jobs:
             if ($adcsManifest.inputs.adcs_config.sha256.Length -ne 64) {
               throw 'ADCS 01 input origin not recorded'
             }
-            Write-Output "ADCS 01 Windows: initial=$($adcs.initial_boresight_error_deg) min=$($adcs.minimum_boresight_error_deg) deg, real torque=$($adcs.max_commanded_torque_Nm) Nm"
+            Write-Output "ADCS 01 Windows: initial=$($adcs.initial_boresight_error_deg) min=$($adcs.minimum_boresight_error_deg) deg, ideal commanded torque=$($adcs.max_commanded_torque_Nm) Nm"
             python -m experiments.ground_01.run_ground --viz
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $groundViz = Get-Content '.\results\ground_01\summary.json' -Raw | ConvertFrom-Json
