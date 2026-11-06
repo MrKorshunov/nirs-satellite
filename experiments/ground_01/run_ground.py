@@ -242,23 +242,48 @@ def main() -> None:
     # coordinates as groundLocation.specifyLocation(), not an independently
     # guessed geodetic/WGS84 point.
     viz_file = None
-    viz_status = "disabled (use --viz to create Vizard playback)"
-    if args.viz:
+    viz_status = "disabled"
+    if plan.viz_mode != "off":
         if not vizSupport.vizFound:
             raise RuntimeError("Installed Basilisk lacks vizInterface support")
-        viz_dir = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "NIRS_Satellite" / "viz"
-        if not str(viz_dir).isascii():
-            raise RuntimeError(
-                "Vizard playback path is not ASCII-only. Choose an ASCII-only "
-                "LOCALAPPDATA directory or run without --viz."
+        viz_task = task
+        if plan.viz_step_s > step:
+            # Physics and geometry remain on the original step_s task.
+            # This second, lower-priority task only updates visualization.
+            viz_task = "groundVizTask"
+            process.addTask(
+                sim.CreateNewTask(viz_task, macros.sec2nano(plan.viz_step_s)),
+                taskPriority=0,
             )
-        viz_dir.mkdir(parents=True, exist_ok=True)
-        viz_file = viz_dir / "ground_01.bin"
+        if plan.viz_mode == "file":
+            viz_dir = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "NIRS_Satellite" / "viz"
+            if not str(viz_dir).isascii():
+                raise RuntimeError(
+                    "Vizard playback path is not ASCII-only. Choose an ASCII-only "
+                    "LOCALAPPDATA directory or run without --viz."
+                )
+            viz_dir.mkdir(parents=True, exist_ok=True)
+            viz_file = viz_dir / f"{plan.output_name}.bin"
+            # Never report a previous run's file as successfully created.
+            if viz_file.exists():
+                viz_file.unlink()
+        if plan.viz_mode == "live":
+            clock = simSynch.ClockSynch()
+            clock.ModelTag = "LiveSimulationClock"
+            clock.accelFactor = float(plan.live_speed)
+            sim.AddModelToTask(viz_task, clock, ModelPriority=10)
         viz = vizSupport.enableUnityVisualization(
-            sim, task, sat, saveFile=str(viz_file)
+            sim, viz_task, sat,
+            saveFile=str(viz_file) if viz_file is not None else None,
+            liveStream=plan.viz_mode == "live",
         )
         if viz is None:
-            raise RuntimeError("Could not initialize Vizard export")
+            raise RuntimeError("Could not initialize Vizard export/stream")
+        if plan.viz_mode == "live":
+            # Restrict the development DirectComm connection to this computer.
+            viz.reqComProtocol = "tcp"
+            viz.reqComAddress = "127.0.0.1"
+            viz.reqPortNumber = str(plan.live_port)
         radial = radius + float(tcfg["altitude_m"])
         r_ground_fixed = np.array([
             radial * math.cos(latitude) * math.cos(longitude),
@@ -305,7 +330,13 @@ def main() -> None:
             raise RuntimeError(
                 f"Vizard target marker was not registered: {viz_location_names!r}"
             )
-        viz_status = "playback requested; high-visibility ground marker attached"
+        if plan.viz_mode == "file":
+            viz_status = "file playback requested; visible ground marker attached"
+        else:
+            viz_status = (
+                f"live DirectComm tcp://127.0.0.1:{plan.live_port}; "
+                f"clock acceleration {plan.live_speed:g}x"
+            )
 
     period=orbital_period_s(elements.a,mu)
     if not math.isclose(period, planned_period, rel_tol=1e-12):
@@ -418,18 +449,24 @@ def main() -> None:
         "windows":windows,
         "payload": payload_evidence,
         "vizard": {
-            "requested": bool(args.viz),
+            "requested": plan.viz_mode != "off",
+            "mode": plan.viz_mode,
+            "visualization_step_s": plan.viz_step_s,
+            "live_acceleration": plan.live_speed,
+            "live_connection": (
+                f"tcp://127.0.0.1:{plan.live_port}" if plan.viz_mode == "live" else None
+            ),
             "status": viz_status,
             "output_file": str(viz_file) if viz_file else None,
             "file_created": bool(viz_file and viz_file.is_file()),
             "earth_attitude_source": "planetEphemeris planetOutMsgs[0] -> earth.planetBodyInMsg",
             "ground_location_source": "spherical body-fixed coordinates from config.json",
-            "parent_body_name": str(earth.displayName) if args.viz else None,
-            "planet_name_internal": str(earth.planetName) if args.viz else None,
-            "marker_name": str(tcfg["name"]) if args.viz else None,
-            "marker_color_rgba": [255, 0, 255, 255] if args.viz else None,
-            "marker_scale": 15.0 if args.viz else None,
-            "location_registered": bool(args.viz and str(tcfg["name"]) in viz_location_names),
+            "parent_body_name": str(earth.displayName) if plan.viz_mode != "off" else None,
+            "planet_name_internal": str(earth.planetName) if plan.viz_mode != "off" else None,
+            "marker_name": str(tcfg["name"]) if plan.viz_mode != "off" else None,
+            "marker_color_rgba": [255, 0, 255, 255] if plan.viz_mode != "off" else None,
+            "marker_scale": 15.0 if plan.viz_mode != "off" else None,
+            "location_registered": bool(plan.viz_mode != "off" and str(tcfg["name"]) in viz_location_names),
         },
         "checks":{
             "max_elevation_difference_rad":max_el_error_rad,
