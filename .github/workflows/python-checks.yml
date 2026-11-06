@@ -232,6 +232,11 @@ jobs:
             results/adcs_01/adcs_torque.png
             results/adcs_01/run_manifest.json
             results/adcs_01/RESULTS_EXPLAINED.md
+            results/adcs_01_step_comparison.json
+            results/adcs_01_step05/adcs_summary.json
+            results/adcs_01_step025/adcs_summary.json
+            results/adcs_01_step05/run_manifest.json
+            results/adcs_01_step025/run_manifest.json
           if-no-files-found: warn
       - name: Preserve long-run Ground 01 numerical evidence
         if: always()
