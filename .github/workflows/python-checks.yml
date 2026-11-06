@@ -163,6 +163,21 @@ jobs:
               assert (p / filename).exists(), filename
           print("Basilisk orbit smoke OK", d["position_sample_count"], "samples")
           PY
+      - name: Preserve long-run Ground 01 numerical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ground-runtime-01-linux
+          path: |
+            results/ground_01_2h/summary.json
+            results/ground_01_2h/run_manifest.json
+            results/ground_01_2h/RESULTS_EXPLAINED.md
+            results/ground_01_2h/access.csv
+            results/ground_01_day1/summary.json
+            results/ground_01_day1/run_manifest.json
+            results/ground_01_day1/RESULTS_EXPLAINED.md
+            results/ground_01_day1/access.csv
+          if-no-files-found: warn
       - name: Preserve numerical evidence
         if: always()
         uses: actions/upload-artifact@v4
