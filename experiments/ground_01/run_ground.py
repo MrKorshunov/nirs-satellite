@@ -1,0 +1,257 @@
+"""Ground 01: calculate one rotating-Earth ground target access window with Basilisk.
+
+Runs a SYNTHETIC Earth-centred, point-mass circular-orbit experiment, using
+Basilisk spacecraft + planetEphemeris + groundLocation. Produces traceable
+CSV/PNG/JSON and independent checks of geometry and rotation.
+
+From repository root:
+  .venv\\Scripts\\python.exe -m experiments.ground_01.run_ground
+"""
+from __future__ import annotations
+
+import csv
+import json
+import math
+from importlib.metadata import version
+from pathlib import Path
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+from Basilisk.simulation import groundLocation, planetEphemeris, spacecraft
+from Basilisk.utilities import (
+    SimulationBaseClass, macros, orbitalMotion, simHelpers, simIncludeGravBody
+)
+
+from experiments.ground_01.geometry import (
+    access_windows, elevation_from_inertial, rotate_z, norm3
+)
+from nirs_satellite.orbit.analytical import orbital_period_s
+
+ROOT = Path(__file__).resolve().parents[2]
+CONF = Path(__file__).with_name("config.json")
+OUTPUT = ROOT / "results" / "ground_01"
+
+
+def draw_plots(times: np.ndarray, elevation_deg: np.ndarray, range_km: np.ndarray,
+               access: np.ndarray, limit_deg: float) -> None:
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(times/60, elevation_deg, label="Ground target elevation")
+    ax.axhline(limit_deg, linestyle="--", color="tab:orange",
+               label=f"Visibility threshold {limit_deg:g} deg")
+    ax.fill_between(times/60, elevation_deg, limit_deg,
+                    where=access, color="tab:green", alpha=0.18, interpolate=False,
+                    label="Access available")
+    ax.set(xlabel="Elapsed simulation time (min)", ylabel="Elevation angle (deg)",
+           title="Ground 01 — rotating Earth, target visibility")
+    ax.legend()
+    ax.grid(True)
+    fig.tight_layout()
+    fig.savefig(OUTPUT/"elevation.png", dpi=150)
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(10,4))
+    ax.plot(times/60,range_km)
+    ax.set(xlabel="Elapsed simulation time (min)", ylabel="Slant range (km)",
+           title="Distance from the ground target to spacecraft")
+    ax.grid(True)
+    fig.tight_layout()
+    fig.savefig(OUTPUT/"slant_range.png",dpi=150)
+    plt.close(fig)
+
+
+def main() -> None:
+    params=json.loads(CONF.read_text(encoding="utf-8"))
+    orbit_config=(CONF.parent/params["orbit_config_path"]).resolve()
+    orbit_cfg=json.loads(orbit_config.read_text(encoding="utf-8"))
+    if not str(params["provenance"]).startswith("SYNTHETIC"):
+        raise ValueError("First Ground experiment must be marked synthetic")
+    step=float(params["step_s"])
+    n_orbits=float(params["number_of_orbits"])
+    if not (math.isfinite(step) and step>0 and math.isfinite(n_orbits) and n_orbits>0):
+        raise ValueError("Invalid integration step or simulation horizon")
+    tcfg=params["target"]
+    ecfg=params["earth"]
+    radius=float(orbit_cfg["reference_radius_m"])
+    omega=float(ecfg["rotation_rate_rad_s"])
+    latitude=math.radians(float(tcfg["latitude_deg"]))
+    longitude=math.radians(float(tcfg["longitude_deg"]))
+    min_elevation=math.radians(float(tcfg["minimum_elevation_deg"]))
+    if not (radius>0 and -math.pi/2<=latitude<=math.pi/2 and
+            -math.pi<=longitude<=math.pi and 0<=min_elevation<math.pi/2 and omega>0):
+        raise ValueError("Invalid Earth/ground geometric parameters")
+    OUTPUT.mkdir(parents=True,exist_ok=True)
+
+    sim=SimulationBaseClass.SimBaseClass()
+    process=sim.CreateNewProcess("groundProcess")
+    task="groundTask"
+    process.addTask(sim.CreateNewTask(task,macros.sec2nano(step)))
+
+    # A single Earth ephemeris with Earth as zeroBase is *centred* on Earth:
+    # no heliocentric translation; orientation rotates with constant omega.
+    # The epoch/prime meridian are synthetic: no real UTC association.
+    eph=planetEphemeris.PlanetEphemeris()
+    eph.ModelTag="SyntheticRotatingEarth"
+    eph.setPlanetNames(planetEphemeris.StringVector(["earth"]))
+    eph_elem=planetEphemeris.ClassicElements()
+    eph_elem.a=149597870700.0  # m, nominal AU; cancels under zeroBase="earth"
+    eph_elem.e=0.0
+    eph_elem.i=eph_elem.Omega=eph_elem.omega=eph_elem.f=0.0
+    eph.planetElements=planetEphemeris.classicElementVector([eph_elem])
+    eph.zeroBase="earth"
+    eph.rightAscension=planetEphemeris.DoubleVector(
+        [math.radians(float(ecfg["rotational_pole_ra_deg"]))])
+    eph.declination=planetEphemeris.DoubleVector(
+        [math.radians(float(ecfg["rotational_pole_dec_deg"]))])
+    eph.lst0=planetEphemeris.DoubleVector(
+        [math.radians(float(ecfg["initial_sidereal_angle_deg"]))])
+    eph.rotRate=planetEphemeris.DoubleVector([omega])
+    sim.AddModelToTask(task,eph,ModelPriority=200)
+
+    sat=spacecraft.Spacecraft()
+    sat.ModelTag="NIRS-GROUND-01"
+    sat.hub.mHub=float(orbit_cfg["hub_mass_kg"])
+    inertia=[float(x) for x in orbit_cfg["hub_inertia_diag_kg_m2"]]
+    sat.hub.IHubPntBc_B=simHelpers.np2EigenMatrix3d(
+        [inertia[0],0,0,0,inertia[1],0,0,0,inertia[2]])
+    sat.hub.r_BcB_B=[[0.0],[0.0],[0.0]]
+
+    grav=simIncludeGravBody.gravBodyFactory()
+    earth=grav.createEarth()
+    earth.isCentralBody=True
+    grav.addBodiesTo(sat)
+    mu=float(earth.mu)
+    elements=orbitalMotion.ClassicElements()
+    elements.a=radius+float(orbit_cfg["initial_altitude_m"])
+    elements.e=float(orbit_cfg["eccentricity"])
+    elements.i=math.radians(orbit_cfg["inclination_deg"])
+    elements.Omega=math.radians(orbit_cfg["raan_deg"])
+    elements.omega=math.radians(orbit_cfg["argument_of_periapsis_deg"])
+    elements.f=math.radians(orbit_cfg["true_anomaly_deg"])
+    r0,v0=orbitalMotion.elem2rv(mu,elements)
+    sat.hub.r_CN_NInit=r0
+    sat.hub.v_CN_NInit=v0
+    sim.AddModelToTask(task,sat,ModelPriority=150)
+
+    target=groundLocation.GroundLocation()
+    target.ModelTag=str(tcfg["name"])
+    target.planetRadius=radius
+    target.minimumElevation=min_elevation
+    target.maximumRange=float(tcfg["maximum_range_m"])
+    target.specifyLocation(latitude,longitude,float(tcfg["altitude_m"]))
+    target.addSpacecraftToModel(sat.scStateOutMsg)
+    target.planetInMsg.subscribeTo(eph.planetOutMsgs[0])
+    sim.AddModelToTask(task,target,ModelPriority=100)
+
+    sc_rec=sat.scStateOutMsg.recorder()
+    ground_rec=target.currentGroundStateOutMsg.recorder()
+    access_rec=target.accessOutMsgs[0].recorder()
+    for recorder in (sc_rec,ground_rec,access_rec):
+        sim.AddModelToTask(task,recorder,ModelPriority=0)
+
+    period=orbital_period_s(elements.a,mu)
+    print("Ground 01 configured. Initializing Basilisk...",flush=True)
+    sim.InitializeSimulation()
+    sim.ConfigureStopTime(macros.sec2nano(period*n_orbits))
+    print("Computing ground access with rotating Earth...",flush=True)
+    sim.ExecuteSimulation()
+
+    times=np.asarray(access_rec.times(),dtype=np.float64)*1e-9
+    rs=np.asarray(sc_rec.r_BN_N,dtype=np.float64)
+    rg=np.asarray(ground_rec.r_LN_N,dtype=np.float64)
+    elev=np.asarray(access_rec.elevation,dtype=np.float64)
+    ranges=np.asarray(access_rec.slantRange,dtype=np.float64)
+    access=np.asarray(access_rec.hasAccess,dtype=np.int64).astype(bool)
+    if len(times)<10 or rs.shape!=(len(times),3) or rg.shape!=rs.shape:
+        raise RuntimeError("Basilisk recorders yielded inconsistent dimensions")
+    if not np.all(np.isfinite(rs)) or not np.all(np.isfinite(rg)):
+        raise RuntimeError("Nonfinite orbit or ground coordinates")
+    if not np.all(np.diff(times)>0):
+        raise RuntimeError("Recorded samples must have increasing times")
+    if not np.all(np.isfinite(elev)) or not np.all(np.isfinite(ranges)):
+        raise RuntimeError("Nonfinite elevation or range data")
+
+    expected=np.array([elevation_from_inertial(tuple(a),tuple(b))
+                       for a,b in zip(rs,rg)])
+    max_el_error_rad=float(np.max(np.abs(elev-expected)))
+
+    # Independent rotation check uses the FIRST recorded ground position
+    # to avoid asserting a physical UTC/Greenwich epoch. Checks the change
+    # in inertial position against Earth spin omega, not its absolute angle.
+    rotation_expected=np.asarray([
+        rotate_z(tuple(rg[0]),omega*(t-times[0])) for t in times
+    ])
+    max_rotation_difference_m=float(np.max(np.linalg.norm(rg-rotation_expected,axis=1)))
+    alt_ground=float(tcfg["altitude_m"])
+    ground_radii=np.linalg.norm(rg,axis=1)
+    max_radius_difference_m=float(
+        np.max(np.abs(ground_radii-(radius+alt_ground))))
+    expected_access=expected>=min_elevation
+    robust=(np.abs(expected-min_elevation)>1e-6)
+    visibility_mismatch=int(np.sum(access[robust]!=expected_access[robust]))
+
+    windows=access_windows(times.tolist(),access.tolist())
+    with (OUTPUT/"access.csv").open("w",newline="",encoding="utf-8") as handle:
+        writer=csv.writer(handle)
+        writer.writerow(["time_s","sc_x_m","sc_y_m","sc_z_m",
+                         "ground_x_m","ground_y_m","ground_z_m",
+                         "elevation_deg","slant_range_m","has_access"])
+        for t, r_sat, r_ground, el, distance, visible in zip(
+            times,rs,rg,elev,ranges,access
+        ):
+            writer.writerow([float(t),*map(float,r_sat),
+                             *map(float,r_ground),math.degrees(float(el)),
+                             float(distance),int(visible)])
+    draw_plots(times,np.degrees(elev),ranges/1000,access,float(tcfg["minimum_elevation_deg"]))
+
+    summary={
+        "scenario":params,
+        "orbit_initial_conditions":orbit_cfg,
+        "software":{"bsk":version("bsk")},
+        "assumptions":[
+            "Synthetic Earth-centred circular point-mass orbit",
+            "Constant Earth spin with arbitrary initial sidereal angle and no UTC epoch",
+            "Spherical Earth ground target, no ellipsoid or terrain",
+            "Geometric access only; no camera FOV/attitude, Sun illumination or clouds",
+            "Window boundaries sampled at simulation cadence, uncertainty up to one step"
+        ],
+        "orbit_period_s":period,
+        "earth_mu_m3_s2":mu,
+        "samples":len(times),
+        "access_samples":int(np.sum(access)),
+        "max_elevation_deg":float(np.max(np.degrees(elev))),
+        "minimum_slant_range_km":float(np.min(ranges)/1000),
+        "windows":windows,
+        "checks":{
+            "max_elevation_difference_rad":max_el_error_rad,
+            "max_earth_rotation_position_difference_m":max_rotation_difference_m,
+            "max_ground_radius_difference_m":max_radius_difference_m,
+            "access_mismatch_count_away_from_threshold":visibility_mismatch
+        },
+        "check_limits":{
+            "max_elevation_difference_rad":1e-6,
+            "max_earth_rotation_position_difference_m":1.0,
+            "max_ground_radius_difference_m":1.0,
+            "access_mismatch_count_away_from_threshold":0
+        }
+    }
+    summary["checks_passed"]=all(
+        summary["checks"][key]<=limit for key,limit in summary["check_limits"].items()
+    ) and bool(windows)
+    (OUTPUT/"summary.json").write_text(
+        json.dumps(summary,ensure_ascii=False,indent=2),encoding="utf-8"
+    )
+    print("Ground 01 samples:",len(times))
+    print("Access windows:",len(windows))
+    print("Max elevation:",f"{summary['max_elevation_deg']:.3f} deg")
+    print("Min slant range:",f"{summary['minimum_slant_range_km']:.3f} km")
+    print("Checks:",summary["checks"])
+    print("Ground geometry:", "PASS" if summary["checks_passed"] else "FAIL")
+    print("Results: results/ground_01")
+    if not summary["checks_passed"]:
+        raise SystemExit("Ground 01 geometric validation failed; inspect summary.json")
+
+
+if __name__=="__main__":
+    main()
