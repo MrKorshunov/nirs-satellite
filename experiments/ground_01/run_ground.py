@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import hashlib
 import math
 import os
 from importlib.metadata import version
@@ -102,9 +103,13 @@ def main() -> None:
     parser.add_argument("--plan-only", action="store_true",
                         help="Show validated plan and quit without running simulation")
     args = parser.parse_args()
-    params=json.loads(CONF.read_text(encoding="utf-8"))
+    ground_config_bytes = CONF.read_bytes()
+    params=json.loads(ground_config_bytes)
+    ground_config_sha=hashlib.sha256(ground_config_bytes).hexdigest()
     orbit_config=(CONF.parent/params["orbit_config_path"]).resolve()
-    orbit_cfg=json.loads(orbit_config.read_text(encoding="utf-8"))
+    orbit_config_bytes=orbit_config.read_bytes()
+    orbit_cfg=json.loads(orbit_config_bytes)
+    orbit_config_sha=hashlib.sha256(orbit_config_bytes).hexdigest()
     if not str(params["provenance"]).startswith("SYNTHETIC"):
         raise ValueError("First Ground experiment must be marked synthetic")
     default_step=float(params["step_s"])
@@ -265,9 +270,10 @@ def main() -> None:
     payload_cfg = None
     payload_command_rec = None
     payload_data_rec = None
+    payload_config_sha = None
     if args.payload:
         from experiments.payload_01.integration import attach
-        payload_cfg, payload_command_rec, payload_data_rec = attach(
+        payload_cfg, payload_command_rec, payload_data_rec, payload_config_sha = attach(
             sim, task, target.accessOutMsgs[0], step
         )
 
@@ -527,12 +533,12 @@ def main() -> None:
         json.dumps(summary,ensure_ascii=False,indent=2),encoding="utf-8"
     )
     input_files = {
-        "ground_config": (CONF, params),
-        "orbit_config": (orbit_config, orbit_cfg),
+        "ground_config": (CONF, params, ground_config_sha),
+        "orbit_config": (orbit_config, orbit_cfg, orbit_config_sha),
     }
     if args.payload:
         from experiments.payload_01.integration import CONFIG as PAYLOAD_CONFIG
-        input_files["payload_config"] = (PAYLOAD_CONFIG, payload_cfg)
+        input_files["payload_config"] = (PAYLOAD_CONFIG, payload_cfg, payload_config_sha)
     write_run_explanation(
         output=output,
         plan=plan.as_dict(),
