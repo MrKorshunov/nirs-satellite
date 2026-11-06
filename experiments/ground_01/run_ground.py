@@ -21,7 +21,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from Basilisk.simulation import groundLocation, planetEphemeris, spacecraft
+from Basilisk.simulation import groundLocation, planetEphemeris, spacecraft, simSynch
 from Basilisk.utilities import (
     SimulationBaseClass, macros, orbitalMotion, simHelpers, simIncludeGravBody, vizSupport
 )
@@ -30,14 +30,14 @@ from experiments.ground_01.geometry import (
     access_windows, elevation_from_inertial, rotate_z, norm3
 )
 from nirs_satellite.orbit.analytical import orbital_period_s
+from experiments.ground_01.runtime import add_run_arguments, resolve_run
+from experiments.ground_01.provenance import build_manifest, save_metadata
 
 ROOT = Path(__file__).resolve().parents[2]
 CONF = Path(__file__).with_name("config.json")
-OUTPUT = ROOT / "results" / "ground_01"
-
 
 def draw_plots(times: np.ndarray, elevation_deg: np.ndarray, range_km: np.ndarray,
-               access: np.ndarray, limit_deg: float) -> None:
+               access: np.ndarray, limit_deg: float, output: Path) -> None:
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(times/60, elevation_deg, label="Ground target elevation")
     ax.axhline(limit_deg, linestyle="--", color="tab:orange",
@@ -50,7 +50,7 @@ def draw_plots(times: np.ndarray, elevation_deg: np.ndarray, range_km: np.ndarra
     ax.legend()
     ax.grid(True)
     fig.tight_layout()
-    fig.savefig(OUTPUT/"elevation.png", dpi=150)
+    fig.savefig(output/"elevation.png", dpi=150)
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(10,4))
@@ -65,7 +65,7 @@ def draw_plots(times: np.ndarray, elevation_deg: np.ndarray, range_km: np.ndarra
     ax.legend()
     ax.grid(True)
     fig.tight_layout()
-    fig.savefig(OUTPUT/"slant_range.png",dpi=150)
+    fig.savefig(output/"slant_range.png",dpi=150)
     plt.close(fig)
 
 
@@ -81,13 +81,14 @@ def main() -> None:
         "--payload", action="store_true",
         help="Use Basilisk instrument to make one synthetic 1 MB product under ideal pointing",
     )
+    add_run_arguments(parser)
     args = parser.parse_args()
     params=json.loads(CONF.read_text(encoding="utf-8"))
     orbit_config=(CONF.parent/params["orbit_config_path"]).resolve()
     orbit_cfg=json.loads(orbit_config.read_text(encoding="utf-8"))
     if not str(params["provenance"]).startswith("SYNTHETIC"):
         raise ValueError("First Ground experiment must be marked synthetic")
-    step=float(params["step_s"])
+    step=float(args.physics_step_s if args.physics_step_s is not None else params["step_s"])
     n_orbits=float(params["number_of_orbits"])
     if not (math.isfinite(step) and step>0 and math.isfinite(n_orbits) and n_orbits>0):
         raise ValueError("Invalid integration step or simulation horizon")
@@ -101,7 +102,6 @@ def main() -> None:
     if not (radius>0 and -math.pi/2<=latitude<=math.pi/2 and
             -math.pi<=longitude<=math.pi and 0<=min_elevation<math.pi/2 and omega>0):
         raise ValueError("Invalid Earth/ground geometric parameters")
-    OUTPUT.mkdir(parents=True,exist_ok=True)
 
     sim=SimulationBaseClass.SimBaseClass()
     process=sim.CreateNewProcess("groundProcess")
@@ -147,6 +147,13 @@ def main() -> None:
     mu=float(earth.mu)
     elements=orbitalMotion.ClassicElements()
     elements.a=radius+float(orbit_cfg["initial_altitude_m"])
+    period=orbital_period_s(elements.a,mu)
+    run=resolve_run(args,params,period)
+    output=ROOT / "results" / run.output_name
+    output.mkdir(parents=True,exist_ok=True)
+    # These are distinct: the physical integrator advances at each physics
+    # tick; recorder and Vizard may run less frequently.
+    record_period_ns=macros.sec2nano(run.record_step_s)
     elements.e=float(orbit_cfg["eccentricity"])
     elements.i=math.radians(orbit_cfg["inclination_deg"])
     elements.Omega=math.radians(orbit_cfg["raan_deg"])
@@ -167,9 +174,9 @@ def main() -> None:
     target.planetInMsg.subscribeTo(eph.planetOutMsgs[0])
     sim.AddModelToTask(task,target,ModelPriority=100)
 
-    sc_rec=sat.scStateOutMsg.recorder()
-    ground_rec=target.currentGroundStateOutMsg.recorder()
-    access_rec=target.accessOutMsgs[0].recorder()
+    sc_rec=sat.scStateOutMsg.recorder(record_period_ns)
+    ground_rec=target.currentGroundStateOutMsg.recorder(record_period_ns)
+    access_rec=target.accessOutMsgs[0].recorder(record_period_ns)
     for recorder in (sc_rec,ground_rec,access_rec):
         sim.AddModelToTask(task,recorder,ModelPriority=0)
 
@@ -319,7 +326,7 @@ def main() -> None:
             "data_destination": "none; memory and radio are not connected",
             "report": "results/payload_01/summary.json",
         }
-    with (OUTPUT/"access.csv").open("w",newline="",encoding="utf-8") as handle:
+    with (output/"access.csv").open("w",newline="",encoding="utf-8") as handle:
         writer=csv.writer(handle)
         writer.writerow(["time_s","sc_x_m","sc_y_m","sc_z_m",
                          "ground_x_m","ground_y_m","ground_z_m",
@@ -381,7 +388,7 @@ def main() -> None:
     summary["checks_passed"]=all(
         summary["checks"][key]<=limit for key,limit in summary["check_limits"].items()
     ) and bool(windows)
-    (OUTPUT/"summary.json").write_text(
+    (output/"summary.json").write_text(
         json.dumps(summary,ensure_ascii=False,indent=2),encoding="utf-8"
     )
     print("Ground 01 samples:",len(times))
