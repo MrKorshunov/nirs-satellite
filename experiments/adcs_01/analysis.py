@@ -141,5 +141,5 @@ def analyse_run(
             "No real camera FOV, actuator wheel momentum, energy, jitter or UTC epoch",
         ],
     }
-    (output / "summary.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    (output / "adcs_summary.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
