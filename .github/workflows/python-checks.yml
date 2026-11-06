@@ -80,6 +80,23 @@ jobs:
               assert abs(float(old["elevation_deg"])-float(new["elevation_deg"])) < 1e-7
           print("Ground two-hour horizon and first-orbit invariance: PASS")
           PY
+      - name: Check full-day numerical Ground 01 without visualization
+        run: |
+          python -m experiments.ground_01.run_ground --duration-days 1 --output-name ground_01_day1
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("results/ground_01_day1")
+          d = json.loads((p/"summary.json").read_text(encoding="utf-8"))
+          m = json.loads((p/"run_manifest.json").read_text(encoding="utf-8"))
+          assert d["samples"] == 8641 and d["last_sample_time_s"] == 86400
+          assert d["checks_passed"], d["checks"]
+          assert d["access_samples"] > 0
+          assert m["runtime"]["duration_source"] == "days"
+          assert m["runtime"]["horizon_s"] == 86400
+          assert len(m["inputs"]["ground_config"]["sha256"]) == 64
+          print("Ground full day: PASS; windows =", len(d["windows"]))
+          PY
       - name: Validate live configuration without network/Vizard
         run: |
           python - <<'PY'
@@ -198,6 +215,13 @@ jobs:
               throw 'Missing input configuration provenance'
             }
             Write-Output "Two-hour Ground 01 Windows: $($long.samples) samples, manifest present"
+            python -m experiments.ground_01.run_ground --duration-days 1 --output-name ground_01_day1
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $day = Get-Content '.\results\ground_01_day1\summary.json' -Raw | ConvertFrom-Json
+            if ($day.samples -ne 8641 -or $day.last_sample_time_s -ne 86400 -or -not $day.checks_passed) {
+              throw '24-hour Ground 01 run failed'
+            }
+            Write-Output "24-hour Ground 01 Windows: $($day.samples) samples"
             python -m experiments.payload_01.run_payload
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $payload = Get-Content '.\results\payload_01\summary.json' -Raw | ConvertFrom-Json
