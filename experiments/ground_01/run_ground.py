@@ -52,9 +52,15 @@ def draw_plots(times: np.ndarray, elevation_deg: np.ndarray, range_km: np.ndarra
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(10,4))
-    ax.plot(times/60,range_km)
+    ax.plot(times/60, range_km, label="Geometric distance (including hidden satellite)")
+    # The straight-line range is still defined even when Earth blocks the line
+    # of sight. Highlight only samples passing the 10-degree access threshold.
+    if np.any(access):
+        ax.plot(times[access]/60, range_km[access], color="tab:green",
+                linewidth=3, label="Accessible samples")
     ax.set(xlabel="Elapsed simulation time (min)", ylabel="Slant range (km)",
-           title="Distance from the ground target to spacecraft")
+           title="Ground-to-spacecraft distance; green = visible samples")
+    ax.legend()
     ax.grid(True)
     fig.tight_layout()
     fig.savefig(OUTPUT/"slant_range.png",dpi=150)
@@ -244,6 +250,16 @@ def main() -> None:
     )
     print("Ground 01 samples:",len(times))
     print("Access windows:",len(windows))
+    for i, window in enumerate(windows, start=1):
+        if window["duration_upper_bound_s"] is not None:
+            print(
+                f"Window {i} sampled: first={window['first_access_sample_s']:.0f}s, "
+                f"last={window['last_access_sample_s']:.0f}s; "
+                f"duration bracket=[{window['duration_lower_bound_s']:.0f}, "
+                f"{window['duration_upper_bound_s']:.0f}]s"
+            )
+        else:
+            print(f"Window {i} clipped by simulation limits; duration upper bound unknown")
     print("Max elevation:",f"{summary['max_elevation_deg']:.3f} deg")
     print("Min slant range:",f"{summary['minimum_slant_range_km']:.3f} km")
     print("Checks:",summary["checks"])
