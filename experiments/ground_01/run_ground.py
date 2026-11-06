@@ -144,9 +144,44 @@ def main() -> None:
         output_name=args.output_name,
         allow_large_run=args.allow_large_run,
     )
+    preview = {
+        **plan.as_dict(),
+        "input_preview": {
+            "orbit_altitude_m": float(orbit_cfg["initial_altitude_m"]),
+            "orbit_inclination_deg": float(orbit_cfg["inclination_deg"]),
+            "orbit_eccentricity": float(orbit_cfg["eccentricity"]),
+            "orbit_raan_deg": float(orbit_cfg["raan_deg"]),
+            "earth_reference_radius_m": radius,
+            "earth_rotation_rate_rad_s": omega,
+            "target_latitude_deg": float(tcfg["latitude_deg"]),
+            "target_longitude_deg": float(tcfg["longitude_deg"]),
+            "minimum_elevation_deg": float(tcfg["minimum_elevation_deg"]),
+        },
+        "input_sources": {
+            "orbit": "experiments/orbit_01/config.json (synthetic)",
+            "earth_and_target": "experiments/ground_01/config.json (synthetic)",
+            "time_overrides": "CLI values replace horizon, step or Vizard cadence ONLY",
+        },
+        "accuracy_note": "Two-body circular orbit + synthetic Earth rotation, no UTC",
+    }
+    if args.payload:
+        payload_path = ROOT / "experiments" / "payload_01" / "config.json"
+        payload_plan = json.loads(payload_path.read_text(encoding="utf-8"))
+        preview["input_preview"]["synthetic_payload_bytes_per_product"] = payload_plan["bytes_per_product"]
+        preview["input_sources"]["payload"] = "experiments/payload_01/config.json (synthetic)"
     if args.plan_only:
-        print(json.dumps(plan.as_dict(), ensure_ascii=False, indent=2))
+        print(json.dumps(preview, ensure_ascii=False, indent=2))
         return
+    print(
+        "INPUTS (synthetic) from config.json: "
+        f"altitude={preview['input_preview']['orbit_altitude_m']:g} m; "
+        f"inclination={preview['input_preview']['orbit_inclination_deg']:g} deg; "
+        f"target=({preview['input_preview']['target_latitude_deg']:g}, "
+        f"{preview['input_preview']['target_longitude_deg']:g}) deg; "
+        f"elevation limit={preview['input_preview']['minimum_elevation_deg']:g} deg",
+        flush=True,
+    )
+    print("Origin: orbit_01/config.json + ground_01/config.json; no real UTC epoch", flush=True)
     step = plan.step_s
     output = ROOT / "results" / plan.output_name
     output.mkdir(parents=True, exist_ok=True)
