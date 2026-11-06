@@ -43,7 +43,7 @@ start .\results\report.html
 
 ## Длительные расчёты и объяснение результатов (экспериментальная ветка PR #10)
 
-Инструкции: [SIMULATION_CONTROL.md](docs/SIMULATION_CONTROL.md). Системная карта: [SYSTEM_STATUS.md](docs/SYSTEM_STATUS.md).
+Инструкции: [SIMULATION_CONTROL.md](docs/SIMULATION_CONTROL.md). [Проверки Linux/Windows](docs/SIMULATION_RUN_VALIDATION.md). Системная карта: [SYSTEM_STATUS.md](docs/SYSTEM_STATUS.md).
 
 - Выбираем длительность в часах или сутках.
 - Отдельно задаём шаг физической модели, записи данных и кадров Vizard.
