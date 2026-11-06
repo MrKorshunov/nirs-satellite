@@ -403,13 +403,17 @@ def main() -> None:
             times.tolist(), access.tolist(), commands.tolist(),
             rates.tolist(), step, payload_cfg["bytes_per_product"] * 8
         )
-        save_evidence(ROOT / "results" / "payload_01", payload_cfg, step, events)
+        payload_folder = (
+            "payload_01" if plan.output_name == "ground_01"
+            else f"payload_01_{plan.output_name}"
+        )
+        save_evidence(ROOT / "results" / payload_folder, payload_cfg, step, events)
         payload_evidence = {
             "experiment": "Payload 01",
             "products_generated": len(events),
             "total_data_bits_generated": sum(e["product_bits"] for e in events),
             "data_destination": "none; memory and radio are not connected",
-            "report": "results/payload_01/summary.json",
+            "report": f"results/{payload_folder}/summary.json",
         }
     with (output/"access.csv").open("w",newline="",encoding="utf-8") as handle:
         writer=csv.writer(handle)
@@ -487,6 +491,27 @@ def main() -> None:
     (output/"summary.json").write_text(
         json.dumps(summary,ensure_ascii=False,indent=2),encoding="utf-8"
     )
+    input_files = {
+        "ground_config": (CONF, params),
+        "orbit_config": (orbit_config, orbit_cfg),
+    }
+    if args.payload:
+        from experiments.payload_01.integration import CONFIG as PAYLOAD_CONFIG
+        input_files["payload_config"] = (PAYLOAD_CONFIG, payload_cfg)
+    write_run_explanation(
+        output=output,
+        plan=plan.as_dict(),
+        configs=input_files,
+        summary=summary,
+        software=summary["software"],
+        notes=summary["assumptions"] + [
+            "All output folder names are local; previous contents of the same run name are overwritten",
+            "Playback speed for a saved file is controlled inside Vizard, not by the physics integrator",
+            "Live mode requires Vizard DirectComm; no stand-alone live test is performed in CI",
+            "Ground 01 tracks only one target; longer windows do not imply additional real imaging",
+            "Payload 01 controller captures only one synthetic product per whole run",
+        ],
+    )
     print("Ground 01 samples:",len(times))
     print("Access windows:",len(windows))
     for i, window in enumerate(windows, start=1):
@@ -509,13 +534,14 @@ def main() -> None:
         if not viz_file.is_file() or viz_file.stat().st_size <= 0:
             raise RuntimeError("Vizard was requested but no non-empty playback file was written")
     print(f"Results: results/{plan.output_name}")
+    print("Input provenance and definitions: run_manifest.json and RESULTS_EXPLAINED.md")
     if payload_evidence:
         print(
             f"Payload 01: {payload_evidence['products_generated']} synthetic product(s), "
             f"{payload_evidence['total_data_bits_generated']} bits generated; "
             "NOT stored or delivered"
         )
-        print("Payload evidence: results/payload_01/summary.json, events.csv")
+        print(f"Payload evidence: {payload_evidence['report']} and events.csv")
     if not summary["checks_passed"]:
         raise SystemExit("Ground 01 geometric validation failed; inspect summary.json")
 
