@@ -195,21 +195,39 @@ def main() -> None:
     # coordinates as groundLocation.specifyLocation(), not an independently
     # guessed geodetic/WGS84 point.
     viz_file = None
-    viz_status = "disabled (use --viz to create Vizard playback)"
-    if args.viz:
+    viz_status = "disabled (mode=batch)"
+    if run.mode != "batch":
         if not vizSupport.vizFound:
             raise RuntimeError("Installed Basilisk lacks vizInterface support")
-        viz_dir = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "NIRS_Satellite" / "viz"
-        if not str(viz_dir).isascii():
-            raise RuntimeError(
-                "Vizard playback path is not ASCII-only. Choose an ASCII-only "
-                "LOCALAPPDATA directory or run without --viz."
-            )
-        viz_dir.mkdir(parents=True, exist_ok=True)
-        viz_file = viz_dir / "ground_01.bin"
+        if run.mode == "playback":
+            viz_dir = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "NIRS_Satellite" / "viz"
+            if not str(viz_dir).isascii():
+                raise RuntimeError(
+                    "Vizard file path is not ASCII-only. Choose an ASCII-only "
+                    "LOCALAPPDATA directory, or use batch mode."
+                )
+            viz_dir.mkdir(parents=True, exist_ok=True)
+            viz_file = viz_dir / f"{run.output_name}.bin"
+
+        # A separate lower-priority process decouples the Vizard frame cadence
+        # from the high-frequency physics/access model. Both share the SAME
+        # spacecraft state and planet orientation; no second propagator.
+        viz_process = sim.CreateNewProcess("vizProcess", priority=-10)
+        viz_task = "vizTask"
+        viz_process.addTask(sim.CreateNewTask(viz_task, macros.sec2nano(run.viz_step_s)))
         viz = vizSupport.enableUnityVisualization(
-            sim, task, sat, saveFile=str(viz_file)
+            sim, viz_task, sat,
+            saveFile=str(viz_file) if viz_file else None,
+            liveStream=(run.mode == "live"),
         )
+        if run.mode == "live":
+            # Loopback-only direct communication, not broadcast to the LAN.
+            viz.reqComProtocol = "tcp"
+            viz.reqComAddress = "127.0.0.1"
+            viz.reqPortNumber = "5556"
+            clock = simSynch.ClockSynch()
+            clock.accelFactor = run.live_speed_factor
+            sim.AddModelToTask(task, clock, ModelPriority=-50)
         if viz is None:
             raise RuntimeError("Could not initialize Vizard export")
         radial = radius + float(tcfg["altitude_m"])
@@ -258,13 +276,25 @@ def main() -> None:
             raise RuntimeError(
                 f"Vizard target marker was not registered: {viz_location_names!r}"
             )
-        viz_status = "playback requested; high-visibility ground marker attached"
+        viz_status = (
+            "live streaming to tcp://localhost:5556" if run.mode == "live"
+            else "playback requested; high-visibility ground marker attached"
+        )
 
-    period=orbital_period_s(elements.a,mu)
+    if run.mode == "live":
+        print(
+            "LIVE STREAM: Open Vizard -> Direct Communication -> Live Streaming "
+            "-> tcp://localhost:5556. Waiting for Vizard connection...",
+            flush=True,
+        )
     print("Ground 01 configured. Initializing Basilisk...",flush=True)
     sim.InitializeSimulation()
-    sim.ConfigureStopTime(macros.sec2nano(period*n_orbits))
-    print("Computing ground access with rotating Earth...",flush=True)
+    sim.ConfigureStopTime(macros.sec2nano(run.duration_s))
+    print(
+        f"Computing {run.duration_s/3600:.3f} h; physics {run.physics_step_s:g}s, "
+        f"record {run.record_step_s:g}s, viz {run.viz_step_s}s; mode={run.mode}...",
+        flush=True,
+    )
     sim.ExecuteSimulation()
 
     times=np.asarray(access_rec.times(),dtype=np.float64)*1e-9
@@ -337,7 +367,7 @@ def main() -> None:
             writer.writerow([float(t),*map(float,r_sat),
                              *map(float,r_ground),math.degrees(float(el)),
                              float(distance),int(visible)])
-    draw_plots(times,np.degrees(elev),ranges/1000,access,float(tcfg["minimum_elevation_deg"]))
+    draw_plots(times,np.degrees(elev),ranges/1000,access,float(tcfg["minimum_elevation_deg"]),output)
 
     summary={
         "scenario":params,
