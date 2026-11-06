@@ -40,6 +40,36 @@ jobs:
         run: python -m experiments.orbit_01.compare_steps
       - name: Run Ground 01 with Basilisk on rotating Earth
         run: python -m experiments.ground_01.run_ground
+      - name: Test 24 hours of model time and input provenance
+        run: |
+          python -m experiments.ground_01.run_ground --hours 24 --record-step-s 30 --output-name ground_day1
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path("results/ground_day1")
+          d=json.loads((root/"summary.json").read_text(encoding="utf-8"))
+          m=json.loads((root/"inputs_and_metrics.json").read_text(encoding="utf-8"))
+          assert d["checks_passed"] and len(d["windows"]) >= 1
+          assert d["run"]["duration_s"]==86400 and d["run"]["physics_step_s"]==10
+          assert d["run"]["record_step_s"]==30 and d["last_recorded_time_s"] >= 86300
+          assert m["run"]==d["run"] and len(m["parameters"])>=15
+          assert (root/"EXPLAIN_RESULTS.md").is_file()
+          print("Long Ground simulation PASS", d["samples"], "samples", len(d["windows"]), "windows")
+          PY
+      - name: Test 3-hour playback with distinct Vizard cadence
+        run: |
+          python -m experiments.ground_01.run_ground --mode playback --hours 3 --record-step-s 30 --viz-step-s 30 --output-name ground_3h
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path("results/ground_3h/summary.json").read_text(encoding="utf-8"))
+          p=Path(d["vizard"]["output_file"])
+          assert d["checks_passed"] and d["run"]["viz_step_s"]==30
+          assert d["vizard"]["file_created"] and p.stat().st_size > 0
+          assert d["vizard"]["location_registered"]
+          assert b"SYNTHETIC_TARGET_01" in p.read_bytes()
+          print("Distinct Vizard cadence PASS", p.stat().st_size, "bytes")
+          PY
       - name: Generate one synthetic instrument data product with Basilisk
         run: |
           python -m experiments.payload_01.run_payload
@@ -143,6 +173,16 @@ jobs:
             $ground = Get-Content '.\\results\\ground_01\\summary.json' -Raw | ConvertFrom-Json
             if (-not $ground.checks_passed) { throw 'Ground access numerical checks failed' }
             Write-Output "Ground 01 Windows: $($ground.windows.Count) access window(s)"
+            python -m experiments.ground_01.run_ground --mode playback --hours 2 --record-step-s 30 --viz-step-s 30 --output-name ground_2h
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $long = Get-Content '.\results\ground_2h\summary.json' -Raw | ConvertFrom-Json
+            if (-not $long.checks_passed -or -not $long.vizard.file_created -or $long.run.duration_s -ne 7200) {
+              throw 'Multi-hour Windows Vizard playback check failed'
+            }
+            if (-not (Test-Path '.\results\ground_2h\inputs_and_metrics.json')) {
+              throw 'Ground provenance data not generated on Windows'
+            }
+            Write-Output "Ground 2-hour playback and metadata Windows: PASS"
             python -m experiments.payload_01.run_payload
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $payload = Get-Content '.\results\payload_01\summary.json' -Raw | ConvertFrom-Json

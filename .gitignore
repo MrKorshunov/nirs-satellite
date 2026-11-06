@@ -17,3 +17,7 @@ orbit_error.txt
 
 # Generated data from ground-target simulation
 /results/ground_01/
+
+# All fresh experiment outputs are machine-generated and may be large.
+# Previously committed tiny examples remain tracked by Git.
+/results/*

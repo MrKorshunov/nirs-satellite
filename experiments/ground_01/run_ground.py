@@ -21,7 +21,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from Basilisk.simulation import groundLocation, planetEphemeris, spacecraft
+from Basilisk.simulation import groundLocation, planetEphemeris, spacecraft, simSynch
 from Basilisk.utilities import (
     SimulationBaseClass, macros, orbitalMotion, simHelpers, simIncludeGravBody, vizSupport
 )
@@ -30,14 +30,14 @@ from experiments.ground_01.geometry import (
     access_windows, elevation_from_inertial, rotate_z, norm3
 )
 from nirs_satellite.orbit.analytical import orbital_period_s
+from experiments.ground_01.runtime import add_run_arguments, resolve_run
+from experiments.ground_01.provenance import build_manifest, save_metadata
 
 ROOT = Path(__file__).resolve().parents[2]
 CONF = Path(__file__).with_name("config.json")
-OUTPUT = ROOT / "results" / "ground_01"
-
 
 def draw_plots(times: np.ndarray, elevation_deg: np.ndarray, range_km: np.ndarray,
-               access: np.ndarray, limit_deg: float) -> None:
+               access: np.ndarray, limit_deg: float, output: Path) -> None:
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(times/60, elevation_deg, label="Ground target elevation")
     ax.axhline(limit_deg, linestyle="--", color="tab:orange",
@@ -50,7 +50,7 @@ def draw_plots(times: np.ndarray, elevation_deg: np.ndarray, range_km: np.ndarra
     ax.legend()
     ax.grid(True)
     fig.tight_layout()
-    fig.savefig(OUTPUT/"elevation.png", dpi=150)
+    fig.savefig(output/"elevation.png", dpi=150)
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(10,4))
@@ -65,7 +65,7 @@ def draw_plots(times: np.ndarray, elevation_deg: np.ndarray, range_km: np.ndarra
     ax.legend()
     ax.grid(True)
     fig.tight_layout()
-    fig.savefig(OUTPUT/"slant_range.png",dpi=150)
+    fig.savefig(output/"slant_range.png",dpi=150)
     plt.close(fig)
 
 
@@ -81,13 +81,14 @@ def main() -> None:
         "--payload", action="store_true",
         help="Use Basilisk instrument to make one synthetic 1 MB product under ideal pointing",
     )
+    add_run_arguments(parser)
     args = parser.parse_args()
     params=json.loads(CONF.read_text(encoding="utf-8"))
     orbit_config=(CONF.parent/params["orbit_config_path"]).resolve()
     orbit_cfg=json.loads(orbit_config.read_text(encoding="utf-8"))
     if not str(params["provenance"]).startswith("SYNTHETIC"):
         raise ValueError("First Ground experiment must be marked synthetic")
-    step=float(params["step_s"])
+    step=float(args.physics_step_s if args.physics_step_s is not None else params["step_s"])
     n_orbits=float(params["number_of_orbits"])
     if not (math.isfinite(step) and step>0 and math.isfinite(n_orbits) and n_orbits>0):
         raise ValueError("Invalid integration step or simulation horizon")
@@ -101,7 +102,6 @@ def main() -> None:
     if not (radius>0 and -math.pi/2<=latitude<=math.pi/2 and
             -math.pi<=longitude<=math.pi and 0<=min_elevation<math.pi/2 and omega>0):
         raise ValueError("Invalid Earth/ground geometric parameters")
-    OUTPUT.mkdir(parents=True,exist_ok=True)
 
     sim=SimulationBaseClass.SimBaseClass()
     process=sim.CreateNewProcess("groundProcess")
@@ -147,6 +147,13 @@ def main() -> None:
     mu=float(earth.mu)
     elements=orbitalMotion.ClassicElements()
     elements.a=radius+float(orbit_cfg["initial_altitude_m"])
+    period=orbital_period_s(elements.a,mu)
+    run=resolve_run(args,params,period)
+    output=ROOT / "results" / run.output_name
+    output.mkdir(parents=True,exist_ok=True)
+    # These are distinct: the physical integrator advances at each physics
+    # tick; recorder and Vizard may run less frequently.
+    record_period_ns=macros.sec2nano(run.record_step_s)
     elements.e=float(orbit_cfg["eccentricity"])
     elements.i=math.radians(orbit_cfg["inclination_deg"])
     elements.Omega=math.radians(orbit_cfg["raan_deg"])
@@ -167,9 +174,9 @@ def main() -> None:
     target.planetInMsg.subscribeTo(eph.planetOutMsgs[0])
     sim.AddModelToTask(task,target,ModelPriority=100)
 
-    sc_rec=sat.scStateOutMsg.recorder()
-    ground_rec=target.currentGroundStateOutMsg.recorder()
-    access_rec=target.accessOutMsgs[0].recorder()
+    sc_rec=sat.scStateOutMsg.recorder(record_period_ns)
+    ground_rec=target.currentGroundStateOutMsg.recorder(record_period_ns)
+    access_rec=target.accessOutMsgs[0].recorder(record_period_ns)
     for recorder in (sc_rec,ground_rec,access_rec):
         sim.AddModelToTask(task,recorder,ModelPriority=0)
 
@@ -188,21 +195,42 @@ def main() -> None:
     # coordinates as groundLocation.specifyLocation(), not an independently
     # guessed geodetic/WGS84 point.
     viz_file = None
-    viz_status = "disabled (use --viz to create Vizard playback)"
-    if args.viz:
+    viz_status = "disabled (mode=batch)"
+    if run.mode != "batch":
         if not vizSupport.vizFound:
             raise RuntimeError("Installed Basilisk lacks vizInterface support")
-        viz_dir = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "NIRS_Satellite" / "viz"
-        if not str(viz_dir).isascii():
-            raise RuntimeError(
-                "Vizard playback path is not ASCII-only. Choose an ASCII-only "
-                "LOCALAPPDATA directory or run without --viz."
-            )
-        viz_dir.mkdir(parents=True, exist_ok=True)
-        viz_file = viz_dir / "ground_01.bin"
-        viz = vizSupport.enableUnityVisualization(
-            sim, task, sat, saveFile=str(viz_file)
+        if run.mode == "playback":
+            viz_dir = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "NIRS_Satellite" / "viz"
+            if not str(viz_dir).isascii():
+                raise RuntimeError(
+                    "Vizard file path is not ASCII-only. Choose an ASCII-only "
+                    "LOCALAPPDATA directory, or use batch mode."
+                )
+            viz_dir.mkdir(parents=True, exist_ok=True)
+            viz_file = viz_dir / f"{run.output_name}.bin"
+
+        # Keep Vizard in the SAME Basilisk process as the physics tasks.
+        # It is a separate lower-priority task, so data only flow one way:
+        # physical model -> viz task, on the requested Vizard cadence.
+        # Multiple processes here introduce needless synchronization risk.
+        viz_task = "vizTask"
+        process.addTask(
+            sim.CreateNewTask(viz_task, macros.sec2nano(run.viz_step_s)),
+            taskPriority=-10,
         )
+        viz = vizSupport.enableUnityVisualization(
+            sim, viz_task, sat,
+            saveFile=str(viz_file) if viz_file else None,
+            liveStream=(run.mode == "live"),
+        )
+        if run.mode == "live":
+            # Loopback-only direct communication, not broadcast to the LAN.
+            viz.reqComProtocol = "tcp"
+            viz.reqComAddress = "127.0.0.1"
+            viz.reqPortNumber = "5556"
+            clock = simSynch.ClockSynch()
+            clock.accelFactor = run.live_speed_factor
+            sim.AddModelToTask(task, clock, ModelPriority=-50)
         if viz is None:
             raise RuntimeError("Could not initialize Vizard export")
         radial = radius + float(tcfg["altitude_m"])
@@ -251,13 +279,25 @@ def main() -> None:
             raise RuntimeError(
                 f"Vizard target marker was not registered: {viz_location_names!r}"
             )
-        viz_status = "playback requested; high-visibility ground marker attached"
+        viz_status = (
+            "live streaming to tcp://localhost:5556" if run.mode == "live"
+            else "playback requested; high-visibility ground marker attached"
+        )
 
-    period=orbital_period_s(elements.a,mu)
+    if run.mode == "live":
+        print(
+            "LIVE STREAM: Open Vizard -> Direct Communication -> Live Streaming "
+            "-> tcp://localhost:5556. Waiting for Vizard connection...",
+            flush=True,
+        )
     print("Ground 01 configured. Initializing Basilisk...",flush=True)
     sim.InitializeSimulation()
-    sim.ConfigureStopTime(macros.sec2nano(period*n_orbits))
-    print("Computing ground access with rotating Earth...",flush=True)
+    sim.ConfigureStopTime(macros.sec2nano(run.duration_s))
+    print(
+        f"Computing {run.duration_s/3600:.3f} h; physics {run.physics_step_s:g}s, "
+        f"record {run.record_step_s:g}s, viz {run.viz_step_s}s; mode={run.mode}...",
+        flush=True,
+    )
     sim.ExecuteSimulation()
 
     times=np.asarray(access_rec.times(),dtype=np.float64)*1e-9
@@ -319,7 +359,7 @@ def main() -> None:
             "data_destination": "none; memory and radio are not connected",
             "report": "results/payload_01/summary.json",
         }
-    with (OUTPUT/"access.csv").open("w",newline="",encoding="utf-8") as handle:
+    with (output/"access.csv").open("w",newline="",encoding="utf-8") as handle:
         writer=csv.writer(handle)
         writer.writerow(["time_s","sc_x_m","sc_y_m","sc_z_m",
                          "ground_x_m","ground_y_m","ground_z_m",
@@ -330,7 +370,7 @@ def main() -> None:
             writer.writerow([float(t),*map(float,r_sat),
                              *map(float,r_ground),math.degrees(float(el)),
                              float(distance),int(visible)])
-    draw_plots(times,np.degrees(elev),ranges/1000,access,float(tcfg["minimum_elevation_deg"]))
+    draw_plots(times,np.degrees(elev),ranges/1000,access,float(tcfg["minimum_elevation_deg"]),output)
 
     summary={
         "scenario":params,
@@ -341,9 +381,13 @@ def main() -> None:
             "Constant Earth spin with arbitrary initial sidereal angle and no UTC epoch",
             "Spherical Earth ground target, no ellipsoid or terrain",
             "Geometric access only; no camera FOV/attitude, Sun illumination or clouds",
-            "Window boundaries sampled at simulation cadence, uncertainty up to one step"
+            "Window boundaries sampled at telemetry recording cadence, uncertainty up to one RECORD step",
+            "Long-term real orbit prediction would require epoch and perturbation models"
         ],
         "orbit_period_s":period,
+        "run":run.to_dict(),
+        "last_recorded_time_s":float(times[-1]),
+        "last_recorded_time_hours":float(times[-1]/3600.0),
         "earth_mu_m3_s2":mu,
         "samples":len(times),
         "access_samples":int(np.sum(access)),
@@ -352,18 +396,21 @@ def main() -> None:
         "windows":windows,
         "payload": payload_evidence,
         "vizard": {
-            "requested": bool(args.viz),
+            "requested": run.mode != "batch",
+            "mode": run.mode,
+            "frame_step_s": run.viz_step_s,
+            "live_speed_factor": run.live_speed_factor,
             "status": viz_status,
             "output_file": str(viz_file) if viz_file else None,
             "file_created": bool(viz_file and viz_file.is_file()),
             "earth_attitude_source": "planetEphemeris planetOutMsgs[0] -> earth.planetBodyInMsg",
             "ground_location_source": "spherical body-fixed coordinates from config.json",
-            "parent_body_name": str(earth.displayName) if args.viz else None,
-            "planet_name_internal": str(earth.planetName) if args.viz else None,
-            "marker_name": str(tcfg["name"]) if args.viz else None,
-            "marker_color_rgba": [255, 0, 255, 255] if args.viz else None,
-            "marker_scale": 15.0 if args.viz else None,
-            "location_registered": bool(args.viz and str(tcfg["name"]) in viz_location_names),
+            "parent_body_name": str(earth.displayName) if run.mode != "batch" else None,
+            "planet_name_internal": str(earth.planetName) if run.mode != "batch" else None,
+            "marker_name": str(tcfg["name"]) if run.mode != "batch" else None,
+            "marker_color_rgba": [255, 0, 255, 255] if run.mode != "batch" else None,
+            "marker_scale": 15.0 if run.mode != "batch" else None,
+            "location_registered": bool(run.mode != "batch" and str(tcfg["name"]) in viz_location_names),
         },
         "checks":{
             "max_elevation_difference_rad":max_el_error_rad,
@@ -380,10 +427,14 @@ def main() -> None:
     }
     summary["checks_passed"]=all(
         summary["checks"][key]<=limit for key,limit in summary["check_limits"].items()
-    ) and bool(windows)
-    (OUTPUT/"summary.json").write_text(
+    )
+    (output/"summary.json").write_text(
         json.dumps(summary,ensure_ascii=False,indent=2),encoding="utf-8"
     )
+    manifest=build_manifest(
+        params,orbit_cfg,run.to_dict(),mu,version("bsk")
+    )
+    save_metadata(output,manifest,summary)
     print("Ground 01 samples:",len(times))
     print("Access windows:",len(windows))
     for i, window in enumerate(windows, start=1):
@@ -405,7 +456,8 @@ def main() -> None:
         print(f"Vizard file: {viz_file} (exists={viz_file.is_file()})")
         if not viz_file.is_file() or viz_file.stat().st_size <= 0:
             raise RuntimeError("Vizard was requested but no non-empty playback file was written")
-    print("Results: results/ground_01")
+    print(f"Results: results/{run.output_name}")
+    print("Inputs and meanings: inputs_and_metrics.json, EXPLAIN_RESULTS.md")
     if payload_evidence:
         print(
             f"Payload 01: {payload_evidence['products_generated']} synthetic product(s), "
