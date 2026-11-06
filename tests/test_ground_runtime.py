@@ -88,6 +88,11 @@ class RuntimeSettingsTests(unittest.TestCase):
             root = Path(d)
             cfg = root / "input.json"
             cfg.write_text('{"target":"synthetic"}', encoding="utf-8")
+            sha_at_read = hashlib.sha256(cfg.read_bytes()).hexdigest()
+            values_at_read = json.loads(cfg.read_text(encoding="utf-8"))
+            # A long run may overlap with a user edit. Provenance must retain
+            # the ORIGINAL observed bytes and values, never a later file hash.
+            cfg.write_text('{"target":"edited while running"}', encoding="utf-8")
             plan = build_plan(**BASE).as_dict()
             summary = {
                 "samples": 568, "last_sample_time_s": 5670,
@@ -98,7 +103,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             write_run_explanation(
                 output=root / "output",
                 plan=plan,
-                configs={"ground": (cfg, json.loads(cfg.read_text()), hashlib.sha256(cfg.read_bytes()).hexdigest())},
+                configs={"ground": (cfg, values_at_read, sha_at_read)},
                 summary=summary,
                 software={"bsk": "2.12.2"},
                 notes=["not real satellite"],
@@ -106,7 +111,8 @@ class RuntimeSettingsTests(unittest.TestCase):
             saved = json.loads((root / "output" / "run_manifest.json").read_text())
             self.assertEqual(saved["runtime"]["horizon_s"], BASE["orbit_period_s"])
             self.assertEqual(saved["inputs"]["ground"]["values"]["target"], "synthetic")
-            self.assertEqual(len(saved["inputs"]["ground"]["sha256"]), 64)
+            self.assertEqual(saved["inputs"]["ground"]["sha256"], sha_at_read)
+            self.assertNotEqual(saved["inputs"]["ground"]["sha256"], hashlib.sha256(cfg.read_bytes()).hexdigest())
             self.assertIn("not real satellite", saved["limitations"])
             report = (root / "output" / "RESULTS_EXPLAINED.md").read_text()
             self.assertIn("НЕ", report)
