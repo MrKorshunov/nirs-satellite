@@ -137,7 +137,7 @@ jobs:
           assert slow["data_conservation_error_bits"] == 0, slow
           assert slow["delivery_fraction"] < 1
           assert manifest["inputs"]["mission_config"]["path"].endswith("config_slow_link.json")
-          assert manifest["inputs"]["mission_config"]["values"]["downlink"]["rate_bits_per_s"] == 100000
+          assert manifest["inputs"]["mission_config"]["values"]["downlink"]["rate_bits_per_s"] == 10000
           print("Radio sensitivity comparison: nominal fraction", normal["delivery_fraction"],
                 "slow fraction", slow["delivery_fraction"])
           PY
