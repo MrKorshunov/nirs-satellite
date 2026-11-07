@@ -117,6 +117,29 @@ jobs:
           print("Mission single-KA data cycle:", m["capture_time_s"],
                 m["downlinked_bits"], m["final_stored_bits"],
                 "delivery fraction", m["delivery_fraction"])
+          assert m["fully_delivered_within_sampling_tolerance"], m
+          assert m["delivery_fraction"] >= 0.9999, m
+          PY
+      - name: Compare nominal vs slow radio and preserve incomplete delivery
+        run: |
+          python -m experiments.mission_01.run_mission --mission-profile slow_link --output-name mission_01_slow
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          normal = json.loads(Path("results/mission_01/mission_summary.json").read_text())
+          slow = json.loads(Path("results/mission_01_slow/mission_summary.json").read_text())
+          manifest = json.loads(Path("results/mission_01_slow/run_manifest.json").read_text())
+          assert normal["capture_count"] == slow["capture_count"] == 1
+          assert normal["capture_time_s"] == slow["capture_time_s"]
+          assert normal["generated_bits"] == slow["generated_bits"] == 8000000
+          assert normal["downlinked_bits"] > slow["downlinked_bits"]
+          assert normal["final_stored_bits"] < slow["final_stored_bits"]
+          assert slow["data_conservation_error_bits"] == 0, slow
+          assert slow["delivery_fraction"] < 1
+          assert manifest["inputs"]["mission_config"]["path"].endswith("config_slow_link.json")
+          assert manifest["inputs"]["mission_config"]["values"]["downlink"]["rate_bits_per_s"] == 100000
+          print("Radio sensitivity comparison: nominal fraction", normal["delivery_fraction"],
+                "slow fraction", slow["delivery_fraction"])
           PY
       - name: Compare actual ADCS pointing with 0.5s and 0.25s control steps
         run: |
@@ -259,6 +282,10 @@ jobs:
             results/mission_01/mission_dataflow.png
             results/mission_01/run_manifest.json
             results/mission_01/RESULTS_EXPLAINED.md
+            results/mission_01_slow/mission_summary.json
+            results/mission_01_slow/mission_states.csv
+            results/mission_01_slow/mission_dataflow.png
+            results/mission_01_slow/run_manifest.json
           if-no-files-found: warn
       - name: Preserve physical ADCS 01 numerical evidence
         if: always()
@@ -382,6 +409,7 @@ jobs:
             if (-not $mission.checks_passed -or -not $missionGround.checks_passed -or
                 $mission.capture_count -ne 1 -or $mission.generated_bits -ne 8000000 -or
                 $mission.downlinked_bits -le 0 -or
+                -not $mission.fully_delivered_within_sampling_tolerance -or
                 $mission.capture_actual_boresight_error_deg -gt 5) {
               throw 'Mission 01 single-satellite data cycle failed on Windows'
             }
