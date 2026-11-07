@@ -87,6 +87,14 @@ def main() -> None:
         "--adcs", action="store_true",
         help="Track rotating-Earth target with simulated rigid-body attitude and ideal torque",
     )
+    parser.add_argument(
+        "--mission", action="store_true",
+        help="One-spacecraft data cycle: real pointing, synthetic capture, memory and ground downlink",
+    )
+    parser.add_argument(
+        "--mission-profile", choices=["nominal", "slow_link"], default="nominal",
+        help="Mission 01 fixed-rate profile for controlled delivery comparison",
+    )
     duration = parser.add_mutually_exclusive_group()
     duration.add_argument("--duration-hours", type=float, help="Simulation horizon in hours")
     duration.add_argument("--duration-days", type=float, help="Simulation horizon in days")
@@ -107,11 +115,12 @@ def main() -> None:
     parser.add_argument("--plan-only", action="store_true",
                         help="Show validated plan and quit without running simulation")
     args = parser.parse_args()
+    if args.mission and (args.adcs or args.payload):
+        parser.error("--mission includes physical ADCS and its own synthetic payload; do not combine modes")
+    if not args.mission and args.mission_profile != "nominal":
+        parser.error("--mission-profile requires --mission")
     if args.adcs and args.payload:
-        parser.error(
-            "The original Payload 01 assumes perfect pointing. ADCS 01 first "
-            "validates actual attitude separately; combined imaging is a later milestone."
-        )
+        parser.error("--adcs and legacy --payload are separate; use --mission for integrated physical pointing")
     ground_config_bytes = CONF.read_bytes()
     params=json.loads(ground_config_bytes)
     ground_config_sha=hashlib.sha256(ground_config_bytes).hexdigest()
@@ -149,13 +158,14 @@ def main() -> None:
         duration_hours=args.duration_hours,
         duration_days=args.duration_days,
         orbits=args.orbits,
-        step_s=(0.5 if args.adcs and args.step_s is None else args.step_s),
+        step_s=(0.5 if (args.adcs or args.mission) and args.step_s is None else args.step_s),
         viz_mode=args.viz_mode,
         legacy_viz=args.viz,
         viz_step_s=args.viz_step_s,
         speed=args.speed,
         live_port=args.live_port,
-        output_name=("adcs_01" if args.adcs and args.output_name == "ground_01"
+        output_name=(("mission_01" if args.mission else "adcs_01")
+                     if (args.adcs or args.mission) and args.output_name == "ground_01"
                      else args.output_name),
         allow_large_run=args.allow_large_run,
     )
@@ -179,7 +189,7 @@ def main() -> None:
         },
         "accuracy_note": "Two-body circular orbit + synthetic Earth rotation, no UTC",
     }
-    if args.adcs:
+    if args.adcs or args.mission:
         from experiments.adcs_01.integration import CONFIG as ADCS_CONFIG, validate_adcs_config
         adcs_preview = json.loads(ADCS_CONFIG.read_text(encoding="utf-8"))
         validate_adcs_config(adcs_preview, plan.step_s)
@@ -190,6 +200,18 @@ def main() -> None:
         preview["input_preview"]["adcs_rate_gain_P_Nm_s"] = adcs_preview["rate_gain_P_Nm_s"]
         preview["input_sources"]["adcs"] = "experiments/adcs_01/config.json (synthetic)"
         preview["accuracy_note"] += "; ideal navigation and unlimited torque (no real actuators)"
+    if args.mission:
+        from experiments.mission_01.integration import CONFIG_BY_PROFILE, validate_config as validate_mission
+        mission_path = CONFIG_BY_PROFILE[args.mission_profile]
+        mission_preview = json.loads(mission_path.read_text(encoding="utf-8"))
+        validate_mission(mission_preview, plan.step_s)
+        preview["input_preview"]["mission_product_bytes"] = mission_preview["capture"]["product_bytes"]
+        preview["input_preview"]["mission_storage_capacity_bytes"] = mission_preview["storage"]["capacity_bytes"]
+        preview["input_preview"]["mission_radio_rate_bits_s"] = mission_preview["downlink"]["rate_bits_per_s"]
+        preview["input_preview"]["mission_ground_station"] = mission_preview["downlink"]["ground_station"]
+        preview["input_sources"]["mission"] = f"experiments/mission_01/{mission_path.name} (synthetic)"
+        preview["mission_profile"] = args.mission_profile
+        preview["accuracy_note"] += "; fixed rate ideal radio and bit queue, no packet errors or receiver"
     if args.payload:
         payload_path = ROOT / "experiments" / "payload_01" / "config.json"
         payload_plan = json.loads(payload_path.read_text(encoding="utf-8"))
@@ -283,7 +305,7 @@ def main() -> None:
     sim.AddModelToTask(task,target,ModelPriority=100)
 
     adcs_components = None
-    if args.adcs:
+    if args.adcs or args.mission:
         from experiments.adcs_01.integration import attach as attach_adcs
         adcs_components = attach_adcs(
             sim, task, sat, target, orbit_cfg, step
@@ -294,6 +316,15 @@ def main() -> None:
     access_rec=target.accessOutMsgs[0].recorder()
     for recorder in (sc_rec,ground_rec,access_rec):
         sim.AddModelToTask(task,recorder,ModelPriority=0)
+
+    mission_components = None
+    if args.mission:
+        from experiments.mission_01.integration import attach as attach_mission
+        mission_components = attach_mission(
+            sim, task, sat, eph.planetOutMsgs[0], radius,
+            target.accessOutMsgs[0], adcs_components.guidance_msg, step,
+            profile=args.mission_profile
+        )
 
     payload_cfg = None
     payload_command_rec = None
@@ -341,11 +372,58 @@ def main() -> None:
             clock.ModelTag = "LiveSimulationClock"
             clock.accelFactor = float(plan.live_speed)
             sim.AddModelToTask(viz_task, clock, ModelPriority=10)
+        # Optional instrument/radio/storage panels expose the actual Basilisk
+        # data messages instead of a hand-drawn or invented dashboard.
+        vizard_features = {}
+        if mission_components is not None:
+            from Basilisk.simulation import vizInterface
+            from Basilisk.architecture import messaging
+
+            sensor = vizInterface.GenericSensor()
+            sensor.label = "SYNTHETIC IMAGE COMMAND"
+            sensor.r_SB_B = [0.0, 0.0, 0.2]
+            sensor.normalVector = [0.0, 0.0, 1.0]
+            sensor.fieldOfView.push_back(math.radians(20.0))
+            sensor.color = vizInterface.IntVector([255, 100, 20, 160])
+            sensor_reader = messaging.DeviceCmdMsgReader()
+            sensor_reader.subscribeTo(mission_components.capture_command_msg)
+            sensor.genericSensorCmdInMsg = sensor_reader
+
+            radio_hud = vizInterface.Transceiver()
+            radio_hud.label = "SYNTHETIC RADIO LINK"
+            radio_hud.r_SB_B = [0.2, 0.0, 0.0]
+            radio_hud.normalVector = [1.0, 0.0, 0.0]
+            radio_hud.fieldOfView = math.radians(40)
+            radio_hud.color = vizInterface.IntVector([0, 220, 110, 255])
+            radio_reader = messaging.DataNodeUsageMsgReader()
+            radio_reader.subscribeTo(mission_components.transmitter_data_msg)
+            radio_hud.transceiverStateInMsgs.push_back(radio_reader)
+
+            disk_hud = vizInterface.GenericStorage()
+            disk_hud.label = "SYNTHETIC ONBOARD MEMORY"
+            disk_hud.units = "bits"
+            disk_hud.color = vizInterface.IntVector([0, 130, 240, 255, 230, 80, 30, 255])
+            disk_hud.thresholds = vizInterface.IntVector([50])
+            disk_reader = messaging.DataStorageStatusMsgReader()
+            disk_reader.subscribeTo(mission_components.storage_status_msg)
+            disk_hud.dataStorageStateInMsg = disk_reader
+
+            vizard_features = {
+                "genericSensorList": sensor,
+                "transceiverList": radio_hud,
+                "genericStorageList": disk_hud,
+            }
         viz = vizSupport.enableUnityVisualization(
             sim, viz_task, sat,
             saveFile=str(viz_file) if viz_file is not None else None,
             liveStream=plan.viz_mode == "live",
+            **vizard_features,
         )
+        if mission_components is not None and viz is not None:
+            vizSupport.setInstrumentGuiSetting(
+                viz, showGenericSensorLabels=True,
+                showTransceiverLabels=True, showGenericStoragePanel=True,
+            )
         if viz is None:
             raise RuntimeError("Could not initialize Vizard export/stream")
         if plan.viz_mode == "live":
@@ -384,6 +462,25 @@ def main() -> None:
             fieldOfView=math.radians(160.0),
             range=2_000_000.0,
         )
+        if mission_components is not None:
+            station = mission_components.config["downlink"]["ground_station"]
+            st_lat = math.radians(float(station["latitude_deg"]))
+            st_lon = math.radians(float(station["longitude_deg"]))
+            st_rad = radius + float(station["altitude_m"])
+            st_fixed = np.array([
+                st_rad * math.cos(st_lat) * math.cos(st_lon),
+                st_rad * math.cos(st_lat) * math.sin(st_lon),
+                st_rad * math.sin(st_lat),
+            ], dtype=float)
+            vizSupport.addLocation(
+                viz, stationName=str(station["name"]),
+                parentBodyName=planet_display_name,
+                r_GP_P=st_fixed,
+                gHat_P=st_fixed/np.linalg.norm(st_fixed),
+                label="SYNTHETIC GROUND STATION", markerScale=10.0,
+                color=[0, 220, 100, 255], isHidden=False,
+                fieldOfView=math.radians(160), range=2_000_000.0,
+            )
         # The marker and label are visual guides, NOT proof of actual imaging.
         # The target line is always drawn, including when the Earth occludes
         # the target: physical access remains defined by access.csv.
@@ -488,6 +585,44 @@ def main() -> None:
             f"ready during access {adcs_evidence['pointing_ready_samples_during_access']} samples",
             flush=True,
         )
+    mission_evidence = None
+    if mission_components is not None:
+        from experiments.mission_01.accounting import analyse_run as analyse_mission
+        mission_recorder_set = (
+            mission_components.station_access_rec,
+            mission_components.station_ground_rec,
+            mission_components.capture_command_rec,
+            mission_components.instrument_data_rec,
+            mission_components.storage_rec,
+            mission_components.transmitter_rec,
+        )
+        for recorder in mission_recorder_set:
+            tt = np.asarray(recorder.times(), dtype=float) * 1e-9
+            if tt.shape != times.shape or not np.allclose(tt, times, rtol=0, atol=1e-9):
+                raise RuntimeError("Mission 01 recorders are not synchronous with the physical spacecraft")
+        mission_evidence = analyse_mission(
+            times=times, sc_r_N=rs, target_r_N=rg,
+            station_r_N=np.asarray(mission_components.station_ground_rec.r_LN_N, dtype=float),
+            sigma_BN=np.asarray(sc_rec.sigma_BN, dtype=float),
+            target_access=access,
+            station_access=np.asarray(mission_components.station_access_rec.hasAccess, dtype=bool),
+            command=np.asarray(mission_components.capture_command_rec.deviceCmd, dtype=int),
+            instrument_baud=np.asarray(mission_components.instrument_data_rec.baudRate, dtype=float),
+            transmitter_baud=np.asarray(mission_components.transmitter_rec.baudRate, dtype=float),
+            storage_bits=np.asarray(mission_components.storage_rec.storageLevel, dtype=float),
+            adcs_guid_sigma=np.asarray(adcs_components.guidance_recorder.sigma_BR, dtype=float),
+            adcs_guid_rate=np.asarray(adcs_components.guidance_recorder.omega_BR_B, dtype=float),
+            boresight_B=adcs_components.config["instrument_boresight_B"],
+            config=mission_components.config, output=output
+        )
+        print(
+            "Mission 01: captured at "
+            f"{mission_evidence['capture_time_s']:.1f} s, generated "
+            f"{mission_evidence['generated_bits']/8e6:.3f} MB, downlinked "
+            f"{mission_evidence['downlinked_bits']/8e6:.3f} MB, "
+            f"remaining {mission_evidence['final_stored_bits']/8e6:.3f} MB",
+            flush=True,
+        )
     payload_evidence = None
     if args.payload:
         from experiments.payload_01.accounting import validate_generation, save_evidence
@@ -554,6 +689,7 @@ def main() -> None:
         "windows":windows,
         "payload": payload_evidence,
         "adcs": adcs_evidence,
+        "mission": mission_evidence,
         "vizard": {
             "requested": plan.viz_mode != "off",
             "mode": plan.viz_mode,
@@ -605,6 +741,12 @@ def main() -> None:
         input_files["adcs_config"] = (
             ADCS_CONFIG, adcs_components.config, adcs_components.config_sha256
         )
+    if mission_components is not None:
+        input_files["mission_config"] = (
+            mission_components.config_path,
+            mission_components.config,
+            mission_components.sha256
+        )
     write_run_explanation(
         output=output,
         plan=plan.as_dict(),
@@ -619,7 +761,10 @@ def main() -> None:
             "Payload 01 controller captures only one synthetic product per whole run",
             ("ADCS 01 simulates rigid-body pointing but uses truth-like navigation and "
              "an unlimited ideal external control torque; no wheel hardware or real camera"
-             if args.adcs else "ADCS not connected, ideal pointing only if Payload is selected"),
+             if args.adcs or args.mission else "ADCS not connected, ideal pointing only if Payload is selected"),
+            ("Mission 01 uses a fixed data product, finite bits storage and an ideal "
+             "packet transmitter; not a camera optic or physical link budget"
+             if args.mission else "Mission 01 data chain not connected"),
         ],
     )
     print("Ground 01 samples:",len(times))
@@ -647,6 +792,8 @@ def main() -> None:
     print("Input provenance and definitions: run_manifest.json and RESULTS_EXPLAINED.md")
     if adcs_evidence:
         print("ADCS diagnostics: adcs_states.csv and adcs_summary.json")
+    if mission_evidence:
+        print("Mission data chain: mission_states.csv, mission_summary.json and mission_dataflow.png")
     if payload_evidence:
         print(
             f"Payload 01: {payload_evidence['products_generated']} synthetic product(s), "

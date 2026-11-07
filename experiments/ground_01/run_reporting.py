@@ -33,6 +33,13 @@ INPUT_FIELDS = {
     "rate_gain_P_Nm_s": ("N m s", "adcs_01/config.json", "Synthetic feedback gain multiplying angular velocity error"),
     "readiness_boresight_max_deg": ("deg", "adcs_01/config.json", "Synthetic upper angular-error limit for readiness flag"),
     "readiness_tracking_rate_max_rad_s": ("rad/s", "adcs_01/config.json", "Synthetic upper angular-rate error limit for readiness flag"),
+    "product_bytes": ("bytes", "mission_01/config*.json/capture", "One assumed data product, NOT measured camera output"),
+    "maximum_attitude_mrp_error": ("1", "mission_01/config*.json/capture", "Dimensionless norm of attitude MRPs permitted for instrument trigger"),
+    "maximum_rate_error_rad_s": ("rad/s", "mission_01/config*.json/capture", "Maximum feedback rate error at exposure trigger"),
+    "capacity_bytes": ("bytes", "mission_01/config*.json/storage", "Finite synthetic onboard memory capacity"),
+    "rate_bits_per_s": ("bits/s", "mission_01/config*.json/downlink", "Fixed ideal downlink bit rate under station access"),
+    "packet_bytes": ("bytes", "mission_01/config*.json/downlink", "Nominal packet size controlling Basilisk packet sending"),
+    "ground_station": ("deg/metres", "mission_01/config*.json/downlink", "Separate spherical Earth ground station position and mask"),
 }
 
 
@@ -45,6 +52,7 @@ RESULT_FIELDS = {
     "checks_passed": ("boolean", "Internal numerical consistency checks, not validation of real orbit/imagery"),
     "payload": ("bits", "Synthetic data generated (when enabled), not stored or downlinked"),
     "adcs": ("various", "ADCS commanded torque and actual pointing metrics, not hardware actuator validation"),
+    "mission": ("bits, s, counts", "Single-KA capture, storage, ideal-radio transmission, latency and remaining data"),
     "vizard": ("metadata", "Visualization settings; Vizard frames do not define dynamics accuracy"),
 }
 
@@ -97,6 +105,7 @@ def write_run_explanation(
             "checks_passed": summary["checks_passed"],
             "payload": summary.get("payload"),
             "adcs": summary.get("adcs"),
+            "mission": summary.get("mission"),
         },
         "limitations": notes,
     }
@@ -130,6 +139,7 @@ def write_run_explanation(
 - Контроль расчёта: **{'PASS' if summary['checks_passed'] else 'FAIL'}**. Контроль НЕ равен внешней валидации.
 - Генерация данных: **{json.dumps(summary.get('payload'), ensure_ascii=False)}**. При наличии данные ещё не сохранены и не переданы.
 - Наведение: **{json.dumps({k: v for k, v in (summary.get('adcs') or {}).items() if k in ('initial_boresight_error_deg', 'minimum_boresight_error_deg', 'final_boresight_error_deg', 'max_commanded_torque_Nm', 'pointing_ready_samples_during_access')}, ensure_ascii=False)}**. Это фактическая динамика корпуса и идеальный командный момент без ограничений оборудования. При включённом ADCS см. `adcs_states.csv`, `adcs_summary.json`, `adcs_pointing.png`, `adcs_torque.png`.
+- Информационный цикл КА: **{json.dumps({k: v for k, v in (summary.get('mission') or {}).items() if k in ('capture_count', 'capture_time_s', 'generated_bits', 'downlinked_bits', 'final_stored_bits', 'delivery_fraction', 'data_latency_capture_to_delivery_s')}, ensure_ascii=False)}**. Данные и остаток **в битах**, длительность **в секундах**, доля передачи 0–1. **Downlinked** означает расход из памяти через идеальный радиомодуль Basilisk, НЕ подтверждение реального приёма. См. `mission_states.csv`, `mission_summary.json`, `mission_dataflow.png`.
 
 ## Где лежат исходные данные и сами результаты
 - `run_manifest.json` — точные входные JSON, SHA-256 файлов, версия среды, настройки запуска, словарь параметров.
