@@ -1,0 +1,13 @@
+{
+  "scenario_id": "storage_01_one_partition",
+  "provenance": "SYNTHETIC onboard buffer; not measured spacecraft mass memory",
+  "storage_capacity_bytes": 10000000,
+  "instrument_partition": "TARGET_01_IMAGE",
+  "initial_occupancy_bytes": 0,
+  "overflow_policy": "Basilisk partitionedStorageUnit capacity limit; no queue eviction",
+  "limitations": [
+    "Finite data capacity only; no file system, radiation effects or real flash wear",
+    "No communication or delivery: occupied data stays onboard",
+    "Single data partition, one synthetic data product"
+  ]
+}
