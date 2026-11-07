@@ -16,7 +16,7 @@
   },
   "downlink": {
     "rate_bits_per_s": 160000,
-    "packet_bytes": 50000,
+    "packet_bytes": 10000,
     "ground_station": {
       "name": "SYNTHETIC_GS_01",
       "latitude_deg": 12,
