@@ -87,6 +87,10 @@ def main() -> None:
         "--adcs", action="store_true",
         help="Track rotating-Earth target with simulated rigid-body attitude and ideal torque",
     )
+    parser.add_argument(
+        "--mission", action="store_true",
+        help="One-spacecraft data cycle: real pointing, synthetic capture, memory and ground downlink",
+    )
     duration = parser.add_mutually_exclusive_group()
     duration.add_argument("--duration-hours", type=float, help="Simulation horizon in hours")
     duration.add_argument("--duration-days", type=float, help="Simulation horizon in days")
@@ -107,11 +111,10 @@ def main() -> None:
     parser.add_argument("--plan-only", action="store_true",
                         help="Show validated plan and quit without running simulation")
     args = parser.parse_args()
+    if args.mission and (args.adcs or args.payload):
+        parser.error("--mission includes physical ADCS and its own synthetic payload; do not combine modes")
     if args.adcs and args.payload:
-        parser.error(
-            "The original Payload 01 assumes perfect pointing. ADCS 01 first "
-            "validates actual attitude separately; combined imaging is a later milestone."
-        )
+        parser.error("--adcs and legacy --payload are separate; use --mission for integrated physical pointing")
     ground_config_bytes = CONF.read_bytes()
     params=json.loads(ground_config_bytes)
     ground_config_sha=hashlib.sha256(ground_config_bytes).hexdigest()
@@ -149,13 +152,14 @@ def main() -> None:
         duration_hours=args.duration_hours,
         duration_days=args.duration_days,
         orbits=args.orbits,
-        step_s=(0.5 if args.adcs and args.step_s is None else args.step_s),
+        step_s=(0.5 if (args.adcs or args.mission) and args.step_s is None else args.step_s),
         viz_mode=args.viz_mode,
         legacy_viz=args.viz,
         viz_step_s=args.viz_step_s,
         speed=args.speed,
         live_port=args.live_port,
-        output_name=("adcs_01" if args.adcs and args.output_name == "ground_01"
+        output_name=(("mission_01" if args.mission else "adcs_01")
+                     if (args.adcs or args.mission) and args.output_name == "ground_01"
                      else args.output_name),
         allow_large_run=args.allow_large_run,
     )
@@ -179,7 +183,7 @@ def main() -> None:
         },
         "accuracy_note": "Two-body circular orbit + synthetic Earth rotation, no UTC",
     }
-    if args.adcs:
+    if args.adcs or args.mission:
         from experiments.adcs_01.integration import CONFIG as ADCS_CONFIG, validate_adcs_config
         adcs_preview = json.loads(ADCS_CONFIG.read_text(encoding="utf-8"))
         validate_adcs_config(adcs_preview, plan.step_s)
@@ -190,6 +194,16 @@ def main() -> None:
         preview["input_preview"]["adcs_rate_gain_P_Nm_s"] = adcs_preview["rate_gain_P_Nm_s"]
         preview["input_sources"]["adcs"] = "experiments/adcs_01/config.json (synthetic)"
         preview["accuracy_note"] += "; ideal navigation and unlimited torque (no real actuators)"
+    if args.mission:
+        from experiments.mission_01.integration import CONFIG as MISSION_CONFIG, validate_config as validate_mission
+        mission_preview = json.loads(MISSION_CONFIG.read_text(encoding="utf-8"))
+        validate_mission(mission_preview, plan.step_s)
+        preview["input_preview"]["mission_product_bytes"] = mission_preview["capture"]["product_bytes"]
+        preview["input_preview"]["mission_storage_capacity_bytes"] = mission_preview["storage"]["capacity_bytes"]
+        preview["input_preview"]["mission_radio_rate_bits_s"] = mission_preview["downlink"]["rate_bits_per_s"]
+        preview["input_preview"]["mission_ground_station"] = mission_preview["downlink"]["ground_station"]
+        preview["input_sources"]["mission"] = "experiments/mission_01/config.json (synthetic)"
+        preview["accuracy_note"] += "; fixed rate ideal radio and bit queue, no packet errors or receiver"
     if args.payload:
         payload_path = ROOT / "experiments" / "payload_01" / "config.json"
         payload_plan = json.loads(payload_path.read_text(encoding="utf-8"))
@@ -283,7 +297,7 @@ def main() -> None:
     sim.AddModelToTask(task,target,ModelPriority=100)
 
     adcs_components = None
-    if args.adcs:
+    if args.adcs or args.mission:
         from experiments.adcs_01.integration import attach as attach_adcs
         adcs_components = attach_adcs(
             sim, task, sat, target, orbit_cfg, step
@@ -294,6 +308,14 @@ def main() -> None:
     access_rec=target.accessOutMsgs[0].recorder()
     for recorder in (sc_rec,ground_rec,access_rec):
         sim.AddModelToTask(task,recorder,ModelPriority=0)
+
+    mission_components = None
+    if args.mission:
+        from experiments.mission_01.integration import attach as attach_mission
+        mission_components = attach_mission(
+            sim, task, sat, eph.planetOutMsgs[0], radius,
+            target.accessOutMsgs[0], adcs_components.guidance_msg, step
+        )
 
     payload_cfg = None
     payload_command_rec = None
@@ -384,6 +406,25 @@ def main() -> None:
             fieldOfView=math.radians(160.0),
             range=2_000_000.0,
         )
+        if mission_components is not None:
+            station = mission_components.config["downlink"]["ground_station"]
+            st_lat = math.radians(float(station["latitude_deg"]))
+            st_lon = math.radians(float(station["longitude_deg"]))
+            st_rad = radius + float(station["altitude_m"])
+            st_fixed = np.array([
+                st_rad * math.cos(st_lat) * math.cos(st_lon),
+                st_rad * math.cos(st_lat) * math.sin(st_lon),
+                st_rad * math.sin(st_lat),
+            ], dtype=float)
+            vizSupport.addLocation(
+                viz, stationName=str(station["name"]),
+                parentBodyName=planet_display_name,
+                r_GP_P=st_fixed,
+                gHat_P=st_fixed/np.linalg.norm(st_fixed),
+                label="SYNTHETIC GROUND STATION", markerScale=10.0,
+                color=[0, 220, 100, 255], isHidden=False,
+                fieldOfView=math.radians(160), range=2_000_000.0,
+            )
         # The marker and label are visual guides, NOT proof of actual imaging.
         # The target line is always drawn, including when the Earth occludes
         # the target: physical access remains defined by access.csv.
