@@ -1,5 +1,5 @@
 {
-  "scenario_id": "mission_01_single_spacecraft_information_cycle",
+  "scenario_id": "mission_01_one_spacecraft_nominal_link",
   "provenance": "SYNTHETIC VALIDATION CONFIGURATION, NOT calibrated flight hardware",
   "capture": {
     "product_name": "TARGET_01_IMAGE",
@@ -15,7 +15,7 @@
     "initial_bytes": 0
   },
   "downlink": {
-    "rate_bits_per_s": 100000,
+    "rate_bits_per_s": 160000,
     "packet_bytes": 50000,
     "ground_station": {
       "name": "SYNTHETIC_GS_01",
