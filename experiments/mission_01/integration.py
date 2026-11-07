@@ -25,11 +25,14 @@ from Basilisk.simulation import (
 
 
 CONFIG = Path(__file__).with_name("config.json")
+CONFIG_SLOW = Path(__file__).with_name("config_slow_link.json")
+CONFIG_BY_PROFILE = {"nominal": CONFIG, "slow_link": CONFIG_SLOW}
 
 
 @dataclass
 class MissionComponents:
     config: dict
+    config_path: Path
     sha256: str
     station_access_rec: object
     station_ground_rec: object
@@ -40,8 +43,12 @@ class MissionComponents:
 
 
 def attach(sim, task: str, spacecraft, planet_msg, earth_radius_m: float,
-           target_access_msg, pointing_guidance_msg, step_s: float) -> MissionComponents:
-    raw = CONFIG.read_bytes()
+           target_access_msg, pointing_guidance_msg, step_s: float,
+           profile: str = "nominal") -> MissionComponents:
+    if profile not in CONFIG_BY_PROFILE:
+        raise ValueError("Unknown synthetic radio profile")
+    config_path = CONFIG_BY_PROFILE[profile]
+    raw = config_path.read_bytes()
     cfg = json.loads(raw)
     validate_config(cfg, step_s)
     capture, storage_cfg, radio_cfg = cfg["capture"], cfg["storage"], cfg["downlink"]
@@ -107,6 +114,7 @@ def attach(sim, task: str, spacecraft, planet_msg, earth_radius_m: float,
 
     return MissionComponents(
         config=cfg,
+        config_path=config_path,
         sha256=hashlib.sha256(raw).hexdigest(),
         station_access_rec=recorders[0],
         station_ground_rec=recorders[1],
