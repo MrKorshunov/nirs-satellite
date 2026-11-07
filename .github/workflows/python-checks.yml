@@ -92,6 +92,32 @@ jobs:
                 "Nm max:", a["max_commanded_torque_Nm"],
                 "m orbit difference:", max_position_difference)
           PY
+      - name: Validate one-spacecraft target to storage to ground link
+        run: |
+          python -m experiments.mission_01.run_mission --viz-mode file --viz-step-s 10
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("results/mission_01")
+          g = json.loads((p/"summary.json").read_text(encoding="utf-8"))
+          m = json.loads((p/"mission_summary.json").read_text(encoding="utf-8"))
+          provenance = json.loads((p/"run_manifest.json").read_text(encoding="utf-8"))
+          assert g["checks_passed"] and g["adcs"]["checks_passed"]
+          assert m["checks_passed"] and m["capture_count"] == 1
+          assert m["generated_bits"] == 8000000, m
+          assert m["capture_actual_boresight_error_deg"] <= 5, m
+          assert m["station_access_samples"] > 0, m
+          assert m["transmitting_samples"] > 0, m
+          assert m["downlinked_bits"] > 0 and m["final_stored_bits"] < 8000000, m
+          assert abs(m["data_conservation_error_bits"]) <= 100000, m
+          assert len(provenance["inputs"]["mission_config"]["sha256"]) == 64
+          assert g["vizard"]["file_created"]
+          for name in ("mission_states.csv", "mission_summary.json", "mission_dataflow.png"):
+              assert (p/name).is_file(), name
+          print("Mission single-KA data cycle:", m["capture_time_s"],
+                m["downlinked_bits"], m["final_stored_bits"],
+                "delivery fraction", m["delivery_fraction"])
+          PY
       - name: Compare actual ADCS pointing with 0.5s and 0.25s control steps
         run: |
           python -m experiments.adcs_01.compare_steps
@@ -219,6 +245,21 @@ jobs:
               assert (p / filename).exists(), filename
           print("Basilisk orbit smoke OK", d["position_sample_count"], "samples")
           PY
+      - name: Preserve single-KA mission dataflow evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mission-01-linux
+          path: |
+            results/mission_01/summary.json
+            results/mission_01/adcs_summary.json
+            results/mission_01/adcs_states.csv
+            results/mission_01/mission_summary.json
+            results/mission_01/mission_states.csv
+            results/mission_01/mission_dataflow.png
+            results/mission_01/run_manifest.json
+            results/mission_01/RESULTS_EXPLAINED.md
+          if-no-files-found: warn
       - name: Preserve physical ADCS 01 numerical evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -334,6 +375,17 @@ jobs:
               throw 'ADCS 01 input origin not recorded'
             }
             Write-Output "ADCS 01 Windows: initial=$($adcs.initial_boresight_error_deg) min=$($adcs.minimum_boresight_error_deg) deg, ideal commanded torque=$($adcs.max_commanded_torque_Nm) Nm"
+            python -m experiments.mission_01.run_mission
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $mission = Get-Content '.\results\mission_01\mission_summary.json' -Raw | ConvertFrom-Json
+            $missionGround = Get-Content '.\results\mission_01\summary.json' -Raw | ConvertFrom-Json
+            if (-not $mission.checks_passed -or -not $missionGround.checks_passed -or
+                $mission.capture_count -ne 1 -or $mission.generated_bits -ne 8000000 -or
+                $mission.downlinked_bits -le 0 -or
+                $mission.capture_actual_boresight_error_deg -gt 5) {
+              throw 'Mission 01 single-satellite data cycle failed on Windows'
+            }
+            Write-Output "Mission 01 Windows: downlinked=$($mission.downlinked_bits), stored=$($mission.final_stored_bits)"
             python -m experiments.ground_01.run_ground --viz
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $groundViz = Get-Content '.\results\ground_01\summary.json' -Raw | ConvertFrom-Json
