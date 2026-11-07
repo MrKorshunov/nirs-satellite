@@ -92,6 +92,28 @@ jobs:
                 "Nm max:", a["max_commanded_torque_Nm"],
                 "m orbit difference:", max_position_difference)
           PY
+      - name: Integrated Payload 02 capture with physical ADCS pointing
+        run: |
+          python -m experiments.payload_02.run_payload
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("results/payload_02_ground_payload02")
+          a = json.loads((p/"summary.json").read_text(encoding="utf-8"))
+          g = json.loads(Path("results/ground_payload02/summary.json").read_text(encoding="utf-8"))
+          m = json.loads(Path("results/ground_payload02/run_manifest.json").read_text(encoding="utf-8"))
+          assert g["checks_passed"] and g["adcs"]["checks_passed"]
+          assert a["product_count"] == 1, a
+          assert a["total_data_bytes_generated"] == 1000000, a
+          assert a["stored_bits"] == a["delivered_bits"] == 0
+          assert a["products"][0]["physical_adcs_guidance_used"]
+          assert not a["products"][0]["ideal_pointing"]
+          assert a["products"][0]["actual_boresight_error_deg"] <= 5
+          assert a["products"][0]["tracking_rate_error_rad_s"] <= .01
+          assert len(m["inputs"]["payload_02_config"]["sha256"]) == 64
+          assert (p/"events.csv").is_file()
+          print("Payload 02 physical ADCS gate: PASS", a["products"][0])
+          PY
       - name: Compare actual ADCS pointing with 0.5s and 0.25s control steps
         run: |
           python -m experiments.adcs_01.compare_steps
@@ -219,6 +241,18 @@ jobs:
               assert (p / filename).exists(), filename
           print("Basilisk orbit smoke OK", d["position_sample_count"], "samples")
           PY
+      - name: Preserve Payload 02 physical-gating evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: payload-02-adcs-gated
+          path: |
+            results/payload_02_ground_payload02/
+            results/ground_payload02/summary.json
+            results/ground_payload02/adcs_summary.json
+            results/ground_payload02/run_manifest.json
+            results/ground_payload02/RESULTS_EXPLAINED.md
+          if-no-files-found: warn
       - name: Preserve physical ADCS 01 numerical evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -334,6 +368,15 @@ jobs:
               throw 'ADCS 01 input origin not recorded'
             }
             Write-Output "ADCS 01 Windows: initial=$($adcs.initial_boresight_error_deg) min=$($adcs.minimum_boresight_error_deg) deg, ideal commanded torque=$($adcs.max_commanded_torque_Nm) Nm"
+            python -m experiments.payload_02.run_payload
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $p2 = Get-Content '.\results\payload_02_ground_payload02\summary.json' -Raw | ConvertFrom-Json
+            if ($p2.product_count -ne 1 -or $p2.total_data_bytes_generated -ne 1000000 -or
+                $p2.products[0].ideal_pointing -or -not $p2.products[0].physical_adcs_guidance_used -or
+                $p2.products[0].actual_boresight_error_deg -gt 5 -or $p2.products[0].tracking_rate_error_rad_s -gt 0.01) {
+              throw 'Payload 02 physical ADCS-gated capture failed'
+            }
+            Write-Output "Payload 02 Windows: one physical-ADCS-gated synthetic product of $($p2.total_data_bytes_generated) bytes"
             python -m experiments.ground_01.run_ground --viz
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $groundViz = Get-Content '.\results\ground_01\summary.json' -Raw | ConvertFrom-Json
