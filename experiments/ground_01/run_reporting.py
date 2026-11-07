@@ -26,6 +26,8 @@ INPUT_FIELDS = {
     "step_s": ("s", "ground_01/config.json or CLI", "Dynamics and access evaluation cadence, NOT Vizard playback speed"),
     "number_of_orbits": ("orbit", "ground_01/config.json or CLI", "Default horizon; CLI hours/days may override"),
     "bytes_per_product": ("bytes", "payload_01/config.json", "Synthetic image product size, NOT measured camera output"),
+    "storage_capacity_bytes": ("bytes", "storage_01/config.json", "Synthetic finite onboard buffer capacity"),
+    "initial_occupancy_bytes": ("bytes", "storage_01/config.json", "Initial buffer occupancy"),
     "initial_sigma_BN_mrp": ("1", "adcs_01/config.json", "Initial spacecraft attitude, modified Rodrigues parameters"),
     "initial_omega_BN_B_rad_s": ("rad/s", "adcs_01/config.json", "Initial body rate with respect to inertial frame"),
     "instrument_boresight_B": ("1", "adcs_01/config.json", "Unit direction of the imaginary sensor in spacecraft body coordinates"),
@@ -45,6 +47,7 @@ RESULT_FIELDS = {
     "checks_passed": ("boolean", "Internal numerical consistency checks, not validation of real orbit/imagery"),
     "payload": ("bits", "Synthetic data generated (when enabled), not stored or downlinked"),
     "adcs": ("various", "ADCS commanded torque and actual pointing metrics, not hardware actuator validation"),
+    "storage": ("bits", "Finite onboard buffer bits; generated, retained, delivered, and unallocated capacity"),
     "vizard": ("metadata", "Visualization settings; Vizard frames do not define dynamics accuracy"),
 }
 
@@ -97,6 +100,7 @@ def write_run_explanation(
             "checks_passed": summary["checks_passed"],
             "payload": summary.get("payload"),
             "adcs": summary.get("adcs"),
+            "storage": summary.get("storage"),
         },
         "limitations": notes,
     }
@@ -130,6 +134,7 @@ def write_run_explanation(
 - Контроль расчёта: **{'PASS' if summary['checks_passed'] else 'FAIL'}**. Контроль НЕ равен внешней валидации.
 - Генерация данных: **{json.dumps(summary.get('payload'), ensure_ascii=False)}**. При наличии данные ещё не сохранены и не переданы.
 - Наведение: **{json.dumps({k: v for k, v in (summary.get('adcs') or {}).items() if k in ('initial_boresight_error_deg', 'minimum_boresight_error_deg', 'final_boresight_error_deg', 'max_commanded_torque_Nm', 'pointing_ready_samples_during_access')}, ensure_ascii=False)}**. Это фактическая динамика корпуса и идеальный командный момент без ограничений оборудования. При включённом ADCS см. `adcs_states.csv`, `adcs_summary.json`, `adcs_pointing.png`, `adcs_torque.png`.
+- Бортовая память: **{json.dumps(summary.get('storage'), ensure_ascii=False)}**. Значения в **битах**. При Storage 01 сохранение проверяется по балансу `сгенерировано = осталось в памяти`, поскольку радиоканал пока отсутствует.
 
 ## Где лежат исходные данные и сами результаты
 - `run_manifest.json` — точные входные JSON, SHA-256 файлов, версия среды, настройки запуска, словарь параметров.

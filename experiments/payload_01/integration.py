@@ -20,7 +20,8 @@ CONFIG = Path(__file__).with_name("config.json")
 
 
 def attach(sim, task: str, access_out_msg, step_s: float,
-           *, physical_guidance_msg=None, adcs_config: dict | None = None):
+           *, physical_guidance_msg=None, adcs_config: dict | None = None,
+           with_storage: bool = False):
     cfg_raw = CONFIG.read_bytes()
     cfg = json.loads(cfg_raw)
     cfg_sha_at_read = hashlib.sha256(cfg_raw).hexdigest()
@@ -65,8 +66,16 @@ def attach(sim, task: str, access_out_msg, step_s: float,
     instrument.nodeStatusInMsg.subscribeTo(controller.deviceCmdOutMsg)
     sim.AddModelToTask(task, instrument, ModelPriority=90)
 
+    storage_binding = None
+    if with_storage:
+        from experiments.storage_01.integration import attach as attach_storage
+        storage_binding = attach_storage(
+            sim, task, instrument.nodeDataOutMsg, instrument.nodeDataName
+        )
     command_record = controller.deviceCmdOutMsg.recorder()
     data_record = instrument.nodeDataOutMsg.recorder()
     sim.AddModelToTask(task, command_record, ModelPriority=0)
     sim.AddModelToTask(task, data_record, ModelPriority=0)
+    if with_storage:
+        return cfg, command_record, data_record, cfg_sha_at_read, storage_binding
     return cfg, command_record, data_record, cfg_sha_at_read

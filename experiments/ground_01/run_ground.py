@@ -87,6 +87,10 @@ def main() -> None:
         "--adcs", action="store_true",
         help="Track rotating-Earth target with simulated rigid-body attitude and ideal torque",
     )
+    parser.add_argument(
+        "--storage", action="store_true",
+        help="Attach a finite Basilisk partitionedStorageUnit to ADCS-gated Payload 02",
+    )
     duration = parser.add_mutually_exclusive_group()
     duration.add_argument("--duration-hours", type=float, help="Simulation horizon in hours")
     duration.add_argument("--duration-days", type=float, help="Simulation horizon in days")
@@ -107,8 +111,9 @@ def main() -> None:
     parser.add_argument("--plan-only", action="store_true",
                         help="Show validated plan and quit without running simulation")
     args = parser.parse_args()
-    # --adcs --payload activates Payload 02, which uses the real ADCS guidance
-    # and independently checks the spacecraft boresight at the capture sample.
+    # --adcs --payload activates Payload 02; --storage adds an onboard buffer.
+    if args.storage and not (args.adcs and args.payload):
+        parser.error("--storage requires both --adcs and --payload")
     ground_config_bytes = CONF.read_bytes()
     params=json.loads(ground_config_bytes)
     ground_config_sha=hashlib.sha256(ground_config_bytes).hexdigest()
@@ -152,7 +157,8 @@ def main() -> None:
         viz_step_s=args.viz_step_s,
         speed=args.speed,
         live_port=args.live_port,
-        output_name=("adcs_01" if args.adcs and args.output_name == "ground_01"
+        output_name=(("ground_storage01" if args.storage else "adcs_01")
+                     if args.adcs and args.output_name == "ground_01"
                      else args.output_name),
         allow_large_run=args.allow_large_run,
     )
@@ -196,6 +202,16 @@ def main() -> None:
             preview["input_sources"]["payload_02"] = (
                 "experiments/payload_02/config.json, real ADCS attitude gating"
             )
+    if args.storage:
+        storage_cfg = json.loads(
+            (ROOT / "experiments" / "storage_01" / "config.json").read_text(encoding="utf-8")
+        )
+        preview["input_preview"]["onboard_storage_capacity_bytes"] = storage_cfg[
+            "storage_capacity_bytes"
+        ]
+        preview["input_sources"]["storage"] = (
+            "experiments/storage_01/config.json (synthetic, finite buffer)"
+        )
     if args.plan_only:
         print(json.dumps(preview, ensure_ascii=False, indent=2))
         return
@@ -300,13 +316,19 @@ def main() -> None:
     payload_command_rec = None
     payload_data_rec = None
     payload_config_sha = None
+    storage_binding = None
     if args.payload:
         from experiments.payload_01.integration import attach
-        payload_cfg, payload_command_rec, payload_data_rec, payload_config_sha = attach(
+        attached = attach(
             sim, task, target.accessOutMsgs[0], step,
             physical_guidance_msg=(adcs_components.guidance_msg if args.adcs else None),
             adcs_config=(adcs_components.config if args.adcs else None),
+            with_storage=args.storage,
         )
+        payload_cfg, payload_command_rec, payload_data_rec, payload_config_sha = attached[:4]
+        if args.storage:
+            storage_binding = attached[4]
+
 
     # Vizard is optional so its native file writer never blocks basic physics.
     # Explicit .bin in ASCII-only LOCALAPPDATA avoids the Windows Cyrillic path
@@ -562,6 +584,26 @@ def main() -> None:
             "report": f"results/{payload_folder}/summary.json",
             "events": events if args.adcs else None,
         }
+    storage_evidence = None
+    if storage_binding is not None:
+        from experiments.storage_01.accounting import verify_storage, save as save_storage
+        storage_config, storage_sha, storage_rec = storage_binding
+        store_t = np.asarray(storage_rec.times(),dtype=float)*1e-9
+        if store_t.shape != times.shape or not np.allclose(store_t,times,atol=1e-9,rtol=0):
+            raise RuntimeError("Storage timeline does not align with instrument and ADCS")
+        level = np.asarray(storage_rec.storageLevel,dtype=float)
+        cap = float(storage_config["storage_capacity_bytes"])*8.0
+        storage_evidence = verify_storage(
+            times.tolist(), level.tolist(), cap, events
+        )
+        storage_folder = ROOT/"results"/f"storage_01_{plan.output_name}"
+        save_storage(storage_folder,times,level,storage_evidence,storage_config)
+        storage_evidence["report"] = str(storage_folder.relative_to(ROOT)/"summary.json")
+        print(
+            f"Storage 01: {storage_evidence['final_storage_bits']} bits onboard; "
+            "no data delivered",
+            flush=True,
+        )
     with (output/"access.csv").open("w",newline="",encoding="utf-8") as handle:
         writer=csv.writer(handle)
         writer.writerow(["time_s","sc_x_m","sc_y_m","sc_z_m",
@@ -600,6 +642,7 @@ def main() -> None:
         "windows":windows,
         "payload": payload_evidence,
         "adcs": adcs_evidence,
+        "storage": storage_evidence,
         "vizard": {
             "requested": plan.viz_mode != "off",
             "mode": plan.viz_mode,
@@ -655,6 +698,11 @@ def main() -> None:
         input_files["adcs_config"] = (
             ADCS_CONFIG, adcs_components.config, adcs_components.config_sha256
         )
+    if storage_binding is not None:
+        from experiments.storage_01.integration import CONFIG as STORAGE_CONFIG
+        input_files["storage_config"] = (
+            STORAGE_CONFIG, storage_config, storage_sha
+        )
     write_run_explanation(
         output=output,
         plan=plan.as_dict(),
@@ -699,6 +747,8 @@ def main() -> None:
     print("Input provenance and definitions: run_manifest.json and RESULTS_EXPLAINED.md")
     if adcs_evidence:
         print("ADCS diagnostics: adcs_states.csv and adcs_summary.json")
+    if storage_evidence:
+        print(f"Storage evidence: {storage_evidence['report']} and storage.csv")
     if payload_evidence:
         print(
             f"Payload 01: {payload_evidence['products_generated']} synthetic product(s), "
