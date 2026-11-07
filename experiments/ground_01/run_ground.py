@@ -91,6 +91,10 @@ def main() -> None:
         "--mission", action="store_true",
         help="One-spacecraft data cycle: real pointing, synthetic capture, memory and ground downlink",
     )
+    parser.add_argument(
+        "--mission-profile", choices=["nominal", "slow_link"], default="nominal",
+        help="Mission 01 fixed-rate profile for controlled delivery comparison",
+    )
     duration = parser.add_mutually_exclusive_group()
     duration.add_argument("--duration-hours", type=float, help="Simulation horizon in hours")
     duration.add_argument("--duration-days", type=float, help="Simulation horizon in days")
@@ -113,6 +117,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.mission and (args.adcs or args.payload):
         parser.error("--mission includes physical ADCS and its own synthetic payload; do not combine modes")
+    if not args.mission and args.mission_profile != "nominal":
+        parser.error("--mission-profile requires --mission")
     if args.adcs and args.payload:
         parser.error("--adcs and legacy --payload are separate; use --mission for integrated physical pointing")
     ground_config_bytes = CONF.read_bytes()
@@ -195,14 +201,16 @@ def main() -> None:
         preview["input_sources"]["adcs"] = "experiments/adcs_01/config.json (synthetic)"
         preview["accuracy_note"] += "; ideal navigation and unlimited torque (no real actuators)"
     if args.mission:
-        from experiments.mission_01.integration import CONFIG as MISSION_CONFIG, validate_config as validate_mission
-        mission_preview = json.loads(MISSION_CONFIG.read_text(encoding="utf-8"))
+        from experiments.mission_01.integration import CONFIG_BY_PROFILE, validate_config as validate_mission
+        mission_path = CONFIG_BY_PROFILE[args.mission_profile]
+        mission_preview = json.loads(mission_path.read_text(encoding="utf-8"))
         validate_mission(mission_preview, plan.step_s)
         preview["input_preview"]["mission_product_bytes"] = mission_preview["capture"]["product_bytes"]
         preview["input_preview"]["mission_storage_capacity_bytes"] = mission_preview["storage"]["capacity_bytes"]
         preview["input_preview"]["mission_radio_rate_bits_s"] = mission_preview["downlink"]["rate_bits_per_s"]
         preview["input_preview"]["mission_ground_station"] = mission_preview["downlink"]["ground_station"]
-        preview["input_sources"]["mission"] = "experiments/mission_01/config.json (synthetic)"
+        preview["input_sources"]["mission"] = f"experiments/mission_01/{mission_path.name} (synthetic)"
+        preview["mission_profile"] = args.mission_profile
         preview["accuracy_note"] += "; fixed rate ideal radio and bit queue, no packet errors or receiver"
     if args.payload:
         payload_path = ROOT / "experiments" / "payload_01" / "config.json"
@@ -314,7 +322,8 @@ def main() -> None:
         from experiments.mission_01.integration import attach as attach_mission
         mission_components = attach_mission(
             sim, task, sat, eph.planetOutMsgs[0], radius,
-            target.accessOutMsgs[0], adcs_components.guidance_msg, step
+            target.accessOutMsgs[0], adcs_components.guidance_msg, step,
+            profile=args.mission_profile
         )
 
     payload_cfg = None
@@ -686,9 +695,10 @@ def main() -> None:
             ADCS_CONFIG, adcs_components.config, adcs_components.config_sha256
         )
     if mission_components is not None:
-        from experiments.mission_01.integration import CONFIG as MISSION_CONFIG
         input_files["mission_config"] = (
-            MISSION_CONFIG, mission_components.config, mission_components.sha256
+            mission_components.config_path,
+            mission_components.config,
+            mission_components.sha256
         )
     write_run_explanation(
         output=output,
