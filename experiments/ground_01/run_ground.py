@@ -107,11 +107,8 @@ def main() -> None:
     parser.add_argument("--plan-only", action="store_true",
                         help="Show validated plan and quit without running simulation")
     args = parser.parse_args()
-    if args.adcs and args.payload:
-        parser.error(
-            "The original Payload 01 assumes perfect pointing. ADCS 01 first "
-            "validates actual attitude separately; combined imaging is a later milestone."
-        )
+    # --adcs --payload activates Payload 02, which uses the real ADCS guidance
+    # and independently checks the spacecraft boresight at the capture sample.
     ground_config_bytes = CONF.read_bytes()
     params=json.loads(ground_config_bytes)
     ground_config_sha=hashlib.sha256(ground_config_bytes).hexdigest()
@@ -195,6 +192,10 @@ def main() -> None:
         payload_plan = json.loads(payload_path.read_text(encoding="utf-8"))
         preview["input_preview"]["synthetic_payload_bytes_per_product"] = payload_plan["bytes_per_product"]
         preview["input_sources"]["payload"] = "experiments/payload_01/config.json (synthetic)"
+        if args.adcs:
+            preview["input_sources"]["payload_02"] = (
+                "experiments/payload_02/config.json, real ADCS attitude gating"
+            )
     if args.plan_only:
         print(json.dumps(preview, ensure_ascii=False, indent=2))
         return
@@ -302,7 +303,9 @@ def main() -> None:
     if args.payload:
         from experiments.payload_01.integration import attach
         payload_cfg, payload_command_rec, payload_data_rec, payload_config_sha = attach(
-            sim, task, target.accessOutMsgs[0], step
+            sim, task, target.accessOutMsgs[0], step,
+            physical_guidance_msg=(adcs_components.guidance_msg if args.adcs else None),
+            adcs_config=(adcs_components.config if args.adcs else None),
         )
 
     # Vizard is optional so its native file writer never blocks basic physics.
@@ -500,21 +503,64 @@ def main() -> None:
                 and np.allclose(data_times, times, rtol=0, atol=1e-9)
                 and np.allclose(command_times, times, rtol=0, atol=1e-9)):
             raise RuntimeError("Instrument time series are not synchronized with ground visibility")
-        events = validate_generation(
-            times.tolist(), access.tolist(), commands.tolist(),
-            rates.tolist(), step, payload_cfg["bytes_per_product"] * 8
-        )
-        payload_folder = (
-            "payload_01" if plan.output_name == "ground_01"
-            else f"payload_01_{plan.output_name}"
-        )
-        save_evidence(ROOT / "results" / payload_folder, payload_cfg, step, events)
+        if args.adcs:
+            from experiments.payload_02.integration import CONFIG as PAYLOAD02_CONFIG, read_payload02_config
+            from experiments.payload_02.accounting import verify_capture, save_capture
+            from experiments.adcs_01.kinematics import true_boresight_error_deg
+            payload02_cfg, payload02_sha = read_payload02_config()
+            # Compute actual body-fixed boresight from physical spacecraft state,
+            # independent of Basilisk's guidance message.
+            errors = [
+                true_boresight_error_deg(sig, sat_xyz, ground_xyz,
+                                         adcs_components.config["instrument_boresight_B"])
+                for sig, sat_xyz, ground_xyz in zip(
+                    np.asarray(sc_rec.sigma_BN, dtype=float), rs, rg
+                )
+            ]
+            guid = adcs_components.guidance_recorder
+            mrp_norms = np.linalg.norm(np.asarray(guid.sigma_BR, dtype=float), axis=1)
+            omega_norms = np.linalg.norm(np.asarray(guid.omega_BR_B, dtype=float), axis=1)
+            boresight_limit = float(adcs_components.config["readiness_boresight_max_deg"])
+            rate_limit = float(adcs_components.config["readiness_tracking_rate_max_rad_s"])
+            mrp_limit = math.tan(math.radians(boresight_limit)/4.0)
+            events = verify_capture(
+                times_s=times.tolist(), has_access=access.tolist(),
+                commands=commands.tolist(), rates=rates.tolist(),
+                boresight_errors_deg=errors, guidance_mrp_norms=mrp_norms.tolist(),
+                rate_errors_rad_s=omega_norms.tolist(), step_s=step,
+                bytes_per_product=payload_cfg["bytes_per_product"],
+                max_boresight_error_deg=boresight_limit,
+                max_rate_error_rad_s=rate_limit,
+                mrp_tolerance=mrp_limit,
+            )
+            payload_folder = f"payload_02_{plan.output_name}"
+            save_capture(
+                ROOT / "results" / payload_folder, events=events,
+                config=payload02_cfg,
+                thresholds={
+                    "boresight_max_deg": boresight_limit,
+                    "guidance_mrp_norm_max": mrp_limit,
+                    "tracking_rate_max_rad_s": rate_limit,
+                },
+            )
+        else:
+            events = validate_generation(
+                times.tolist(), access.tolist(), commands.tolist(),
+                rates.tolist(), step, payload_cfg["bytes_per_product"] * 8
+            )
+            payload_folder = (
+                "payload_01" if plan.output_name == "ground_01"
+                else f"payload_01_{plan.output_name}"
+            )
+            save_evidence(ROOT / "results" / payload_folder, payload_cfg, step, events)
         payload_evidence = {
-            "experiment": "Payload 01",
+            "experiment": "Payload 02" if args.adcs else "Payload 01",
+            "physical_adcs_gate": bool(args.adcs),
             "products_generated": len(events),
             "total_data_bits_generated": sum(e["product_bits"] for e in events),
             "data_destination": "none; memory and radio are not connected",
             "report": f"results/{payload_folder}/summary.json",
+            "events": events if args.adcs else None,
         }
     with (output/"access.csv").open("w",newline="",encoding="utf-8") as handle:
         writer=csv.writer(handle)
@@ -600,6 +646,10 @@ def main() -> None:
     if args.payload:
         from experiments.payload_01.integration import CONFIG as PAYLOAD_CONFIG
         input_files["payload_config"] = (PAYLOAD_CONFIG, payload_cfg, payload_config_sha)
+        if args.adcs:
+            input_files["payload_02_config"] = (
+                PAYLOAD02_CONFIG, payload02_cfg, payload02_sha
+            )
     if adcs_components is not None:
         from experiments.adcs_01.integration import CONFIG as ADCS_CONFIG
         input_files["adcs_config"] = (
@@ -616,7 +666,9 @@ def main() -> None:
             "Playback speed for a saved file is controlled inside Vizard, not by the physics integrator",
             "Live mode requires Vizard DirectComm; no stand-alone live test is performed in CI",
             "Ground 01 tracks only one target; longer windows do not imply additional real imaging",
-            "Payload 01 controller captures only one synthetic product per whole run",
+            ("Payload 02 controller captures at most one synthetic product using real ADCS "
+             "guidance and independent actual boresight checks" if args.adcs and args.payload
+             else "Payload 01 controller captures only one synthetic product per whole run"),
             ("ADCS 01 simulates rigid-body pointing but uses truth-like navigation and "
              "an unlimited ideal external control torque; no wheel hardware or real camera"
              if args.adcs else "ADCS not connected, ideal pointing only if Payload is selected"),
