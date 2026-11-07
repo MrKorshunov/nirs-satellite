@@ -372,11 +372,58 @@ def main() -> None:
             clock.ModelTag = "LiveSimulationClock"
             clock.accelFactor = float(plan.live_speed)
             sim.AddModelToTask(viz_task, clock, ModelPriority=10)
+        # Optional instrument/radio/storage panels expose the actual Basilisk
+        # data messages instead of a hand-drawn or invented dashboard.
+        vizard_features = {}
+        if mission_components is not None:
+            from Basilisk.simulation import vizInterface
+            from Basilisk.architecture import messaging
+
+            sensor = vizInterface.GenericSensor()
+            sensor.label = "SYNTHETIC IMAGE COMMAND"
+            sensor.r_SB_B = [0.0, 0.0, 0.2]
+            sensor.normalVector = [0.0, 0.0, 1.0]
+            sensor.fieldOfView.push_back(math.radians(20.0))
+            sensor.color = vizInterface.IntVector([255, 100, 20, 160])
+            sensor_reader = messaging.DeviceCmdMsgReader()
+            sensor_reader.subscribeTo(mission_components.capture_command_msg)
+            sensor.genericSensorCmdInMsg = sensor_reader
+
+            radio_hud = vizInterface.Transceiver()
+            radio_hud.label = "SYNTHETIC RADIO LINK"
+            radio_hud.r_SB_B = [0.2, 0.0, 0.0]
+            radio_hud.normalVector = [1.0, 0.0, 0.0]
+            radio_hud.fieldOfView = math.radians(40)
+            radio_hud.color = vizInterface.IntVector([0, 220, 110, 255])
+            radio_reader = messaging.DataNodeUsageMsgReader()
+            radio_reader.subscribeTo(mission_components.transmitter_data_msg)
+            radio_hud.transceiverStateInMsgs.push_back(radio_reader)
+
+            disk_hud = vizInterface.GenericStorage()
+            disk_hud.label = "SYNTHETIC ONBOARD MEMORY"
+            disk_hud.units = "bits"
+            disk_hud.color = vizInterface.IntVector([0, 130, 240, 255, 230, 80, 30, 255])
+            disk_hud.thresholds = vizInterface.IntVector([50])
+            disk_reader = messaging.DataStorageStatusMsgReader()
+            disk_reader.subscribeTo(mission_components.storage_status_msg)
+            disk_hud.dataStorageStateInMsg = disk_reader
+
+            vizard_features = {
+                "genericSensorList": sensor,
+                "transceiverList": radio_hud,
+                "genericStorageList": disk_hud,
+            }
         viz = vizSupport.enableUnityVisualization(
             sim, viz_task, sat,
             saveFile=str(viz_file) if viz_file is not None else None,
             liveStream=plan.viz_mode == "live",
+            **vizard_features,
         )
+        if mission_components is not None and viz is not None:
+            vizSupport.setInstrumentGuiSetting(
+                viz, showGenericSensorLabels=True,
+                showTransceiverLabels=True, showGenericStoragePanel=True,
+            )
         if viz is None:
             raise RuntimeError("Could not initialize Vizard export/stream")
         if plan.viz_mode == "live":
