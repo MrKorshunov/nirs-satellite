@@ -1,0 +1,15 @@
+{
+  "scenario_id": "payload_02_adcs_gated_capture",
+  "provenance": "SYNTHETIC one-product controller; no camera image or storage",
+  "maximum_products_per_run": 1,
+  "data_product_definition": "Use payload_01/config.json bytes_per_product and nodeDataName",
+  "pointing_requirement": "Both Basilisk MRP tracking tolerance and angular rate tolerance from adcs_01/config.json",
+  "independent_verification": "Recompute actual sensor boresight-target LOS using spacecraft attitude and Ground position; verify all capture samples",
+  "limitations": [
+    "The product contains no pixels; it is a modeled data volume",
+    "A command is one simulated tick, not a camera optical exposure",
+    "No reaction wheels, pointing sensor noise, onboard storage or radio delivery",
+    "The target is always being tracked even outside geometric access",
+    "Simulated Earth coordinates are not linked to UTC"
+  ]
+}

@@ -19,7 +19,8 @@ from Basilisk.simulation import simpleInstrument
 CONFIG = Path(__file__).with_name("config.json")
 
 
-def attach(sim, task: str, access_out_msg, step_s: float):
+def attach(sim, task: str, access_out_msg, step_s: float,
+           *, physical_guidance_msg=None, adcs_config: dict | None = None):
     cfg_raw = CONFIG.read_bytes()
     cfg = json.loads(cfg_raw)
     cfg_sha_at_read = hashlib.sha256(cfg_raw).hexdigest()
@@ -34,13 +35,26 @@ def attach(sim, task: str, access_out_msg, step_s: float):
 
     controller = simpleInstrumentController.simpleInstrumentController()
     controller.ModelTag = "SyntheticSingleExposureController"
-    controller.attErrTolerance = 0.1
+    if physical_guidance_msg is not None:
+        if adcs_config is None:
+            raise ValueError("ADCS settings needed for physical guidance")
+        # Basilisk's simpleInstrumentController tolerance is MRP NORM,
+        # NOT degrees. Convert physical-angle tolerance using tan(theta/4).
+        # For this 2-axis pointing reference, roll does not constrain optics.
+        max_deg = float(adcs_config["readiness_boresight_max_deg"])
+        max_rate = float(adcs_config["readiness_tracking_rate_max_rad_s"])
+        controller.attErrTolerance = math.tan(math.radians(max_deg) / 4)
+        controller.useRateTolerance = 1
+        controller.rateErrTolerance = max_rate
+        controller.attGuidInMsg.subscribeTo(physical_guidance_msg)
+        controller.ModelTag = "PhysicalADCSConstrainedInstrumentController"
+    else:
+        controller.attErrTolerance = 0.1
+        # Original Payload 01: explicitly declared nonphysical zero error.
+        ideal_guidance = messaging.AttGuidMsg().write(messaging.AttGuidMsgPayload())
+        controller.attGuidInMsg.subscribeTo(ideal_guidance)
     controller.locationAccessInMsg.subscribeTo(access_out_msg)
 
-    # NOT a physical attitude sensor or control law. Setting the guidance
-    # vector to zero bypasses the actual pointing constraint deliberately.
-    ideal_guidance = messaging.AttGuidMsg().write(messaging.AttGuidMsgPayload())
-    controller.attGuidInMsg.subscribeTo(ideal_guidance)
     sim.AddModelToTask(task, controller, ModelPriority=95)
 
     instrument = simpleInstrument.SimpleInstrument()
