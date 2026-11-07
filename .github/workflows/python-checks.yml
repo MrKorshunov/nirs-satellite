@@ -114,6 +114,25 @@ jobs:
           assert (p/"events.csv").is_file()
           print("Payload 02 physical ADCS gate: PASS", a["products"][0])
           PY
+      - name: Store one physically ADCS-gated synthetic image onboard
+        run: |
+          python -m experiments.storage_01.run_storage
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("results/storage_01_ground_storage01")
+          st = json.loads((p/"summary.json").read_text(encoding="utf-8"))
+          ground = json.loads(Path("results/ground_storage01/summary.json").read_text(encoding="utf-8"))
+          manifest = json.loads(Path("results/ground_storage01/run_manifest.json").read_text(encoding="utf-8"))
+          assert st["integrity_passed"], st
+          assert st["generated_bits"] == st["final_storage_bits"] == 8_000_000, st
+          assert st["delivered_bits"] == st["lost_bits"] == 0
+          assert st["storage_capacity_bits"] == 80_000_000
+          assert ground["checks_passed"] and ground["storage"]["integrity_passed"]
+          assert len(manifest["inputs"]["storage_config"]["sha256"]) == 64
+          assert (p/"storage.csv").is_file()
+          print("Storage 01 onboard bit accounting PASS",st)
+          PY
       - name: Compare actual ADCS pointing with 0.5s and 0.25s control steps
         run: |
           python -m experiments.adcs_01.compare_steps
@@ -241,6 +260,17 @@ jobs:
               assert (p / filename).exists(), filename
           print("Basilisk orbit smoke OK", d["position_sample_count"], "samples")
           PY
+      - name: Preserve on-board Storage 01 numerical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storage-01-onboard-buffer
+          path: |
+            results/storage_01_ground_storage01/
+            results/ground_storage01/summary.json
+            results/ground_storage01/run_manifest.json
+            results/ground_storage01/RESULTS_EXPLAINED.md
+          if-no-files-found: warn
       - name: Preserve Payload 02 physical-gating evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -377,6 +407,13 @@ jobs:
               throw 'Payload 02 physical ADCS-gated capture failed'
             }
             Write-Output "Payload 02 Windows: one physical-ADCS-gated synthetic product of $($p2.total_data_bytes_generated) bytes"
+            python -m experiments.storage_01.run_storage
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $st = Get-Content '.\results\storage_01_ground_storage01\summary.json' -Raw | ConvertFrom-Json
+            if (-not $st.integrity_passed -or $st.final_storage_bits -ne 8000000 -or $st.generated_bits -ne 8000000 -or $st.delivered_bits -ne 0) {
+              throw 'Storage 01 on-board bit accounting failed'
+            }
+            Write-Output "Storage 01 Windows: $($st.final_storage_bits) bits on-board / $($st.storage_capacity_bits) capacity"
             python -m experiments.ground_01.run_ground --viz
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $groundViz = Get-Content '.\results\ground_01\summary.json' -Raw | ConvertFrom-Json
