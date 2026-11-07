@@ -202,6 +202,16 @@ def main() -> None:
             preview["input_sources"]["payload_02"] = (
                 "experiments/payload_02/config.json, real ADCS attitude gating"
             )
+    if args.storage:
+        storage_cfg = json.loads(
+            (ROOT / "experiments" / "storage_01" / "config.json").read_text(encoding="utf-8")
+        )
+        preview["input_preview"]["onboard_storage_capacity_bytes"] = storage_cfg[
+            "storage_capacity_bytes"
+        ]
+        preview["input_sources"]["storage"] = (
+            "experiments/storage_01/config.json (synthetic, finite buffer)"
+        )
     if args.plan_only:
         print(json.dumps(preview, ensure_ascii=False, indent=2))
         return
