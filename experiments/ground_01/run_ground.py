@@ -529,6 +529,44 @@ def main() -> None:
             f"ready during access {adcs_evidence['pointing_ready_samples_during_access']} samples",
             flush=True,
         )
+    mission_evidence = None
+    if mission_components is not None:
+        from experiments.mission_01.accounting import analyse_run as analyse_mission
+        mission_recorder_set = (
+            mission_components.station_access_rec,
+            mission_components.station_ground_rec,
+            mission_components.capture_command_rec,
+            mission_components.instrument_data_rec,
+            mission_components.storage_rec,
+            mission_components.transmitter_rec,
+        )
+        for recorder in mission_recorder_set:
+            tt = np.asarray(recorder.times(), dtype=float) * 1e-9
+            if tt.shape != times.shape or not np.allclose(tt, times, rtol=0, atol=1e-9):
+                raise RuntimeError("Mission 01 recorders are not synchronous with the physical spacecraft")
+        mission_evidence = analyse_mission(
+            times=times, sc_r_N=rs, target_r_N=rg,
+            station_r_N=np.asarray(mission_components.station_ground_rec.r_LN_N, dtype=float),
+            sigma_BN=np.asarray(sc_rec.sigma_BN, dtype=float),
+            target_access=access,
+            station_access=np.asarray(mission_components.station_access_rec.hasAccess, dtype=bool),
+            command=np.asarray(mission_components.capture_command_rec.deviceCmd, dtype=int),
+            instrument_baud=np.asarray(mission_components.instrument_data_rec.baudRate, dtype=float),
+            transmitter_baud=np.asarray(mission_components.transmitter_rec.baudRate, dtype=float),
+            storage_bits=np.asarray(mission_components.storage_rec.storageLevel, dtype=float),
+            adcs_guid_sigma=np.asarray(adcs_components.guidance_recorder.sigma_BR, dtype=float),
+            adcs_guid_rate=np.asarray(adcs_components.guidance_recorder.omega_BR_B, dtype=float),
+            boresight_B=adcs_components.config["instrument_boresight_B"],
+            config=mission_components.config, output=output
+        )
+        print(
+            "Mission 01: captured at "
+            f"{mission_evidence['capture_time_s']:.1f} s, generated "
+            f"{mission_evidence['generated_bits']/8e6:.3f} MB, downlinked "
+            f"{mission_evidence['downlinked_bits']/8e6:.3f} MB, "
+            f"remaining {mission_evidence['final_stored_bits']/8e6:.3f} MB",
+            flush=True,
+        )
     payload_evidence = None
     if args.payload:
         from experiments.payload_01.accounting import validate_generation, save_evidence
@@ -595,6 +633,7 @@ def main() -> None:
         "windows":windows,
         "payload": payload_evidence,
         "adcs": adcs_evidence,
+        "mission": mission_evidence,
         "vizard": {
             "requested": plan.viz_mode != "off",
             "mode": plan.viz_mode,
@@ -646,6 +685,11 @@ def main() -> None:
         input_files["adcs_config"] = (
             ADCS_CONFIG, adcs_components.config, adcs_components.config_sha256
         )
+    if mission_components is not None:
+        from experiments.mission_01.integration import CONFIG as MISSION_CONFIG
+        input_files["mission_config"] = (
+            MISSION_CONFIG, mission_components.config, mission_components.sha256
+        )
     write_run_explanation(
         output=output,
         plan=plan.as_dict(),
@@ -660,7 +704,10 @@ def main() -> None:
             "Payload 01 controller captures only one synthetic product per whole run",
             ("ADCS 01 simulates rigid-body pointing but uses truth-like navigation and "
              "an unlimited ideal external control torque; no wheel hardware or real camera"
-             if args.adcs else "ADCS not connected, ideal pointing only if Payload is selected"),
+             if args.adcs or args.mission else "ADCS not connected, ideal pointing only if Payload is selected"),
+            ("Mission 01 uses a fixed data product, finite bits storage and an ideal "
+             "packet transmitter; not a camera optic or physical link budget"
+             if args.mission else "Mission 01 data chain not connected"),
         ],
     )
     print("Ground 01 samples:",len(times))
@@ -688,6 +735,8 @@ def main() -> None:
     print("Input provenance and definitions: run_manifest.json and RESULTS_EXPLAINED.md")
     if adcs_evidence:
         print("ADCS diagnostics: adcs_states.csv and adcs_summary.json")
+    if mission_evidence:
+        print("Mission data chain: mission_states.csv, mission_summary.json and mission_dataflow.png")
     if payload_evidence:
         print(
             f"Payload 01: {payload_evidence['products_generated']} synthetic product(s), "
