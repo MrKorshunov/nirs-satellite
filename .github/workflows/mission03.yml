@@ -87,7 +87,7 @@ jobs:
       - name: Install Basilisk 2.12.2
         run: python -m pip install "bsk[all,examples]==2.12.2"
       - name: Execute Mission 03 with Vizard playback file
-        run: python -m experiments.mission_03.run --duration-hours 0.2 --viz-mode file --viz-step-s 10 --viz-minimal --require-two-captures --output-name mission03_windows_acceptance
+        run: python -m experiments.mission_03.run --duration-hours 0.2 --viz-mode file --viz-step-s 10 --require-two-captures --output-name mission03_windows_acceptance
       - name: Check summary and Vizard playback
         run: |
           python -c "import json,pathlib; p=pathlib.Path('results/mission03_windows_acceptance'); s=json.loads((p/'mission03_summary.json').read_text()); assert s['checks_passed']; assert s['vizard_created']; assert s['generated_bits']==16000000; assert s['tasks'][0]['capture_count']==s['tasks'][1]['capture_count']==1; print('WINDOWS PHYSICAL MISSION03 PASSED')"
