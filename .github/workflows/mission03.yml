@@ -1,0 +1,99 @@
+name: Mission03 physical multi-target acceptance
+
+on:
+  push:
+    branches:
+      - feature/mission03-physical-executor
+      - main
+    paths:
+      - 'experiments/mission_03/**'
+      - 'experiments/mission_01/integration.py'
+      - 'experiments/power_01/integration.py'
+      - 'inputs/physical/mission_execution.json'
+      - 'tests/test_mission03_logic.py'
+      - '.github/workflows/mission03.yml'
+      - 'nirs_satellite/launcher_core.py'
+      - 'nirs_satellite/launcher_gui.py'
+      - 'CHECK_NIRS.cmd'
+      - 'RUN_PHYSICAL_SATELLITE.cmd'
+  pull_request:
+    paths:
+      - 'experiments/mission_03/**'
+      - 'experiments/mission_01/integration.py'
+      - 'experiments/power_01/integration.py'
+      - 'inputs/physical/mission_execution.json'
+      - '.github/workflows/mission03.yml'
+      - 'nirs_satellite/launcher_core.py'
+      - 'nirs_satellite/launcher_gui.py'
+
+jobs:
+  mission-control-unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate power interlock and safe retarget configuration
+        run: python -m unittest tests.test_mission03_logic tests.test_launcher_core tests.test_input_registry -v
+
+  physically-actuated-two-targets-linux:
+    needs: mission-control-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install Basilisk 2.12.2
+        run: python -m pip install "bsk[all,examples]==2.12.2"
+      - name: Execute physical two-target camera, wheel, power, storage, radio scenario
+        run: python -m experiments.mission_03.run --duration-hours 0.2 --viz-mode off --require-two-captures --output-name mission03_linux_acceptance
+      - name: Verify continuous states, two distinct captures and actual power conditions
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("results/mission03_linux_acceptance")
+          s=json.loads((p/"mission03_summary.json").read_text(encoding="utf-8"))
+          assert s["checks_passed"],s["checks"]
+          assert [t["capture_count"] for t in s["tasks"]]==[1,1]
+          assert s["generated_bits"]==16000000
+          assert s["retarget_time_s"] is not None
+          assert s["physical_wheel_max_rpm"]<=s["physical_wheel_limit_rpm"]+3
+          assert abs(s["conservation_error_bits"])<160000
+          assert (p/"mission03_states.csv").is_file()
+          assert (p/"mission03_dataflow.png").is_file()
+          assert (p/"power_summary.json").is_file()
+          print("PHYSICAL MISSION03 PASSED: 2 products, actual RW, battery, storage, radio")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mission03-linux-acceptance
+          path: results/mission03_linux_acceptance/
+          if-no-files-found: warn
+
+  physically-actuated-two-targets-windows:
+    needs: mission-control-unit-tests
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install Basilisk 2.12.2
+        run: python -m pip install "bsk[all,examples]==2.12.2"
+      - name: Execute Mission 03 with Vizard playback file
+        run: python -m experiments.mission_03.run --duration-hours 0.2 --viz-mode file --viz-step-s 10 --require-two-captures --output-name mission03_windows_acceptance
+      - name: Check summary and Vizard playback
+        run: |
+          python -c "import json,pathlib; p=pathlib.Path('results/mission03_windows_acceptance'); s=json.loads((p/'mission03_summary.json').read_text()); assert s['checks_passed']; assert s['vizard_created']; assert s['generated_bits']==16000000; assert s['tasks'][0]['capture_count']==s['tasks'][1]['capture_count']==1; print('WINDOWS PHYSICAL MISSION03 PASSED')"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mission03-windows-acceptance
+          path: results/mission03_windows_acceptance/
+          if-no-files-found: warn
