@@ -45,11 +45,15 @@ class MissionComponents:
     capture_command_msg: object
     transmitter_data_msg: object
     storage_status_msg: object
+    controller: object
+    instrument: object
+    transmitter: object
+    storage: object
 
 
 def attach(sim, task: str, spacecraft, planet_msg, earth_radius_m: float,
            target_access_msg, pointing_guidance_msg, step_s: float,
-           profile: str = "nominal") -> MissionComponents:
+           profile: str = "nominal", physical_targets: list[dict] | None = None) -> MissionComponents:
     if profile not in CONFIG_BY_PROFILE:
         raise ValueError("Unknown synthetic radio profile")
     config_path = CONFIG_BY_PROFILE[profile]
@@ -57,6 +61,9 @@ def attach(sim, task: str, spacecraft, planet_msg, earth_radius_m: float,
     cfg = json.loads(raw)
     validate_config(cfg, step_s)
     capture, storage_cfg, radio_cfg = cfg["capture"], cfg["storage"], cfg["downlink"]
+    if physical_targets:
+        if any(int(x["product_bytes"]) != int(capture["product_bytes"]) for x in physical_targets):
+            raise ValueError("Physical retarget demonstrator requires equal-size synthetic products")
     station_cfg = radio_cfg["ground_station"]
 
     station = groundLocation.GroundLocation()
@@ -84,7 +91,7 @@ def attach(sim, task: str, spacecraft, planet_msg, earth_radius_m: float,
 
     instrument = simpleInstrument.SimpleInstrument()
     instrument.ModelTag = "Mission_SyntheticInstrument"
-    instrument.nodeDataName = str(capture["product_name"])
+    instrument.nodeDataName = str(physical_targets[0]["id"] if physical_targets else capture["product_name"])
     instrument.nodeBaudRate = float(capture["product_bytes"])*8/step_s
     instrument.nodeStatusInMsg.subscribeTo(controller.deviceCmdOutMsg)
     sim.AddModelToTask(task, instrument, ModelPriority=90)
@@ -93,7 +100,7 @@ def attach(sim, task: str, spacecraft, planet_msg, earth_radius_m: float,
     transmitter.ModelTag = "Mission_FixedRateGroundTransmitter"
     transmitter.nodeBaudRate = -float(radio_cfg["rate_bits_per_s"])
     transmitter.packetSize = -8*float(radio_cfg["packet_bytes"])
-    transmitter.numBuffers = 1
+    transmitter.numBuffers = len(physical_targets) if physical_targets else 1
     transmitter.addAccessMsgToTransmitter(station.accessOutMsgs[0])
     sim.AddModelToTask(task, transmitter, ModelPriority=96)
 
@@ -102,7 +109,11 @@ def attach(sim, task: str, spacecraft, planet_msg, earth_radius_m: float,
     storage.storageCapacity = 8*float(storage_cfg["capacity_bytes"])
     storage.addDataNodeToModel(instrument.nodeDataOutMsg)
     storage.addDataNodeToModel(transmitter.nodeDataOutMsg)
-    storage.addPartition(str(storage_cfg["partition_name"]))
+    if physical_targets:
+        for product in physical_targets:
+            storage.addPartition(str(product["id"]))
+    else:
+        storage.addPartition(str(storage_cfg["partition_name"]))
     sim.AddModelToTask(task, storage, ModelPriority=89)
     transmitter.addStorageUnitToTransmitter(storage.storageUnitDataOutMsg)
 
@@ -130,4 +141,8 @@ def attach(sim, task: str, spacecraft, planet_msg, earth_radius_m: float,
         capture_command_msg=controller.deviceCmdOutMsg,
         transmitter_data_msg=transmitter.nodeDataOutMsg,
         storage_status_msg=storage.storageUnitDataOutMsg,
+        controller=controller,
+        instrument=instrument,
+        transmitter=transmitter,
+        storage=storage,
     )
