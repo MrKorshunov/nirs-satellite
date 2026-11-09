@@ -357,10 +357,7 @@ def main() -> None:
         from experiments.power_01.integration import attach as attach_power
         power_components = attach_power(
             sim, task, sat, eph.planetOutMsgs[0],
-            instrument_status_msg=(
-                mission_components.capture_command_msg
-                if mission_components is not None else None
-            ),
+            mission_loads_always_on=(mission_components is not None),
         )
 
     payload_cfg = None
