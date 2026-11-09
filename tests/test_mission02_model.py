@@ -66,6 +66,16 @@ class Mission02ModelTests(unittest.TestCase):
         self.assertEqual(summary["captured"], 1)
         self.assertEqual(summary["transmitted_bits"], 0)
 
+    def test_packet_credit_accumulates_between_samples(self):
+        cfg, states = fixture()
+        cfg["radio"]["nominal_rate_bps"] = 1000
+        # 10 s * 1000 bit/s is below the 40000-bit packet size.
+        # Several consecutive contact samples must still complete a packet.
+        summary = simulate(states, cfg, "edf")["summary"]
+        self.assertEqual(summary["captured"], 1)
+        self.assertEqual(summary["transmitted_bits"], 80000)
+        self.assertEqual(summary["balance_error_bits"], 0)
+
     def test_low_battery_prevents_capture(self):
         cfg, states = fixture()
         cfg["power"]["initial_wh"] = 5.01
