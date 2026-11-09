@@ -1,0 +1,29 @@
+{
+  "scenario_id": "power_01_basilisk_solar_eclipse_and_battery",
+  "provenance": "SYNTHETIC reference power subsystem, not calibrated hardware",
+  "battery_capacity_wh": 80,
+  "battery_initial_wh": 65,
+  "panel_area_m2": 0.08,
+  "panel_efficiency": 0.25,
+  "panel_normal_body": [
+    1,
+    0,
+    0
+  ],
+  "base_load_w": 4,
+  "imaging_load_w": 13,
+  "transmitter_load_w": 15,
+  "sun_inertial_direction": [
+    1,
+    0,
+    0
+  ],
+  "sun_distance_m": 149597870700,
+  "limitations": [
+    "Fixed inertial synthetic Sun (no astronomical UTC)",
+    "Basilisk conical eclipse model is physical geometry but epoch synthetic",
+    "Fixed body-mounted panel area, efficiency and normal",
+    "Power nodes and simpleBattery state integrated, NOT used yet to inhibit capture/transmit at battery reserve",
+    "No thermal effects, DC/DC efficiency, solar panel degradation or detailed battery electrochemistry"
+  ]
+}

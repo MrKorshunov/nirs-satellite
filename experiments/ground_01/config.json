@@ -1,0 +1,23 @@
+{
+  "scenario_id": "ground_01_rotating_earth",
+  "provenance": "SYNTHETIC EDUCATIONAL SCENARIO, not a time-tagged real Earth observation",
+  "orbit_config_path": "../orbit_01/config.json",
+  "earth": {
+    "model": "rotating sphere",
+    "rotation_rate_rad_s": 0.00007292115,
+    "initial_sidereal_angle_deg": 0,
+    "rotational_pole_ra_deg": 0,
+    "rotational_pole_dec_deg": 90,
+    "epoch_note": "t=0 is an abstract reference. Longitude is NOT tied to real UTC."
+  },
+  "target": {
+    "name": "SYNTHETIC_TARGET_01",
+    "latitude_deg": 14,
+    "longitude_deg": 43,
+    "altitude_m": 0,
+    "minimum_elevation_deg": 10,
+    "maximum_range_m": -1
+  },
+  "step_s": 10,
+  "number_of_orbits": 1
+}
