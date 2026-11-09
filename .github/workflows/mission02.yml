@@ -99,11 +99,18 @@ jobs:
       - name: Verify constrained scheduling results on Windows
         run: |
           python -c "import json,pathlib; p=pathlib.Path('results/mission02_windows_acceptance'); s=json.loads((p/'comparison.json').read_text()); assert len(s)==3; assert all(abs(x['balance_error_bits'])<0.1 for x in s); assert any(x['captured']>0 for x in s); print('WINDOWS MISSION 02 ACCEPTED')"
+      - name: Run joint physical RW, power and datachain with Vizard recording on Windows
+        run: python -m experiments.mission_01.run_mission --actuator rw --power --viz-mode file --viz-step-s 10 --output-name mission01_windows_full
+      - name: Verify physical sensor telemetry and Vizard on Windows
+        run: |
+          python -c "import json,pathlib; p=pathlib.Path('results/mission01_windows_full'); r=json.loads((p/'adcs_summary.json').read_text()); e=json.loads((p/'power_summary.json').read_text()); m=json.loads((p/'mission_summary.json').read_text()); g=json.loads((p/'summary.json').read_text()); assert r['actual_max_abs_rw_speed_rpm']<=r['rw_speed_limit_rpm']+3; assert e['checks_passed']; assert m['capture_count']==1 and m['delivery_fraction']>=0.9999; assert g['vizard']['file_created']; print('WINDOWS PHYSICAL RW+POWER+DATA+VIZARD ACCEPTED')"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: mission02-windows-acceptance
-          path: results/mission02_windows_acceptance/
+          path: |
+            results/mission02_windows_acceptance/
+            results/mission01_windows_full/
           if-no-files-found: warn
 
   basilisk-reaction-wheel-dynamics:
