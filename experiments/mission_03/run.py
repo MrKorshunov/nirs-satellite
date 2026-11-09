@@ -67,7 +67,7 @@ def _ground_r_fixed(site, earth_radius):
 
 
 def _draw_vizard(sim, process, task, sc, grav_earth, data, targets, earth_radius,
-                 output_name, cadence):
+                 output_name, cadence, minimal=False):
     if not vizSupport.vizFound:
         raise RuntimeError("Basilisk Vizard interface not available")
     from Basilisk.architecture import messaging
@@ -85,6 +85,13 @@ def _draw_vizard(sim, process, task, sc, grav_earth, data, targets, earth_radius
     if cadence > 0.5:
         viz_task = "mission03VizTask"
         process.addTask(sim.CreateNewTask(viz_task, macros.sec2nano(cadence)), taskPriority=0)
+
+    if minimal:
+        viz = vizSupport.enableUnityVisualization(
+            sim, viz_task, sc, saveFile=str(bin_path))
+        if viz is None:
+            raise RuntimeError("Minimal Vizard initialization failed")
+        return bin_path, viz
 
     sensor = vizInterface.GenericSensor()
     sensor.label = "MISSION03 REAL CAMERA COMMAND"
@@ -326,6 +333,7 @@ def main():
     parser.add_argument("--output-name",default="mission03_two_targets")
     parser.add_argument("--viz-mode",choices=("file","off"),default="file")
     parser.add_argument("--viz-step-s",type=float,default=10)
+    parser.add_argument("--viz-minimal",action="store_true",help="Diagnose minimal Vizard export without native HUD/target objects")
     parser.add_argument("--require-two-captures",action="store_true",
                         help="Fail CI if two physically generated products were not observed")
     args=parser.parse_args()
@@ -433,7 +441,7 @@ def main():
     if args.viz_mode=="file":
         bin_path,viz=_draw_vizard(sim,process,task,sc,earth,data,cfg["tasks"],
                                   float(orbit["reference_radius_m"]),
-                                  args.output_name,float(args.viz_step_s))
+                                  args.output_name,float(args.viz_step_s),minimal=args.viz_minimal)
     print(f"MISSION 03 physical dynamics: {horizon_s:.1f}s at {step}s; "
           f"two targets; battery gate every {control_step:g}s",flush=True)
     # Python SysModel is scheduled AFTER battery, storage and radio modules.
