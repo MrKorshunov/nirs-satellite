@@ -1,0 +1,34 @@
+{
+  "scenario_id": "mission03_physical_multitarget_reference",
+  "provenance": "SYNTHETIC two-target validation of actual Basilisk retarget/capture and resource gate, not flight hardware",
+  "max_products": 2,
+  "energy_reserve_wh": 5,
+  "command_interval_s": 5,
+  "targets": [
+    {
+      "id": "TARGET_01_IMAGE",
+      "name": "SYNTHETIC_TARGET_01",
+      "latitude_deg": 14,
+      "longitude_deg": 43,
+      "altitude_m": 0,
+      "minimum_elevation_deg": 10,
+      "product_bytes": 1000000
+    },
+    {
+      "id": "TARGET_02_IMAGE",
+      "name": "SYNTHETIC_TARGET_02",
+      "latitude_deg": 14.8,
+      "longitude_deg": 43.5,
+      "altitude_m": 0,
+      "minimum_elevation_deg": 10,
+      "product_bytes": 1000000
+    }
+  ],
+  "limitations": [
+    "Two sequential physical targets; not an optimization scheduler",
+    "Exact physical ADCS reorientation, synthetic camera bytes per step, and Basilisk bit storage",
+    "Battery-energy reserve gates new camera captures and radio at discrete command intervals",
+    "No real camera optics, no UTC, no RF receiver or ACK",
+    "Energy loads mission mode conservative always-on until verified dynamic mode switching"
+  ]
+}
