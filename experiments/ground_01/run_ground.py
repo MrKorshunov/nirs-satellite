@@ -88,6 +88,10 @@ def main() -> None:
         help="Track rotating-Earth target with simulated rigid-body attitude and ideal torque",
     )
     parser.add_argument(
+        "--actuator", choices=["ideal", "rw"], default="ideal",
+        help="ADCS actuation: ideal external torque (baseline) or physical Basilisk reaction wheels",
+    )
+    parser.add_argument(
         "--mission", action="store_true",
         help="One-spacecraft data cycle: real pointing, synthetic capture, memory and ground downlink",
     )
@@ -121,6 +125,8 @@ def main() -> None:
         parser.error("--mission-profile requires --mission")
     if args.adcs and args.payload:
         parser.error("--adcs and legacy --payload are separate; use --mission for integrated physical pointing")
+    if args.actuator == "rw" and not (args.adcs or args.mission):
+        parser.error("--actuator rw requires --adcs or --mission")
     ground_config_bytes = CONF.read_bytes()
     params=json.loads(ground_config_bytes)
     ground_config_sha=hashlib.sha256(ground_config_bytes).hexdigest()
@@ -199,7 +205,11 @@ def main() -> None:
         preview["input_preview"]["adcs_feedback_K_Nm"] = adcs_preview["feedback_gain_K_Nm"]
         preview["input_preview"]["adcs_rate_gain_P_Nm_s"] = adcs_preview["rate_gain_P_Nm_s"]
         preview["input_sources"]["adcs"] = "experiments/adcs_01/config.json (synthetic)"
-        preview["accuracy_note"] += "; ideal navigation and unlimited torque (no real actuators)"
+        preview["accuracy_note"] += (
+            "; Basilisk reaction wheels with synthetic torque/speed limits and ideal nav"
+            if args.actuator == "rw"
+            else "; ideal navigation and unlimited torque (no real actuators)"
+        )
     if args.mission:
         from experiments.mission_01.integration import CONFIG_BY_PROFILE, validate_config as validate_mission
         mission_path = CONFIG_BY_PROFILE[args.mission_profile]
@@ -306,7 +316,10 @@ def main() -> None:
 
     adcs_components = None
     if args.adcs or args.mission:
-        from experiments.adcs_01.integration import attach as attach_adcs
+        if args.actuator == "rw":
+            from experiments.adcs_02.integration import attach as attach_adcs
+        else:
+            from experiments.adcs_01.integration import attach as attach_adcs
         adcs_components = attach_adcs(
             sim, task, sat, target, orbit_cfg, step
         )
@@ -555,7 +568,10 @@ def main() -> None:
     windows=access_windows(times.tolist(),access.tolist())
     adcs_evidence = None
     if adcs_components is not None:
-        from experiments.adcs_01.analysis import analyse_run
+        if args.actuator == "rw":
+            from experiments.adcs_02.analysis import analyse_run
+        else:
+            from experiments.adcs_01.analysis import analyse_run
         guidance_rec = adcs_components.guidance_recorder
         torque_rec = adcs_components.torque_recorder
         nav_rec = adcs_components.nav_recorder
@@ -578,6 +594,32 @@ def main() -> None:
             config=adcs_components.config,
             output=output,
         )
+        if args.actuator == "rw":
+            rw_rec = adcs_components.rw_recorder
+            rw_times = np.asarray(rw_rec.times(), dtype=float) * 1e-9
+            rw_speed = np.asarray(rw_rec.wheelSpeeds, dtype=float)[:, :3]
+            if (rw_speed.shape != (len(times), 3) or
+                    not np.allclose(rw_times, times, rtol=0, atol=1e-9) or
+                    not np.all(np.isfinite(rw_speed))):
+                raise RuntimeError("ADCS02 physical reaction wheel logs are not synchronized")
+            rw_rpm = rw_speed / macros.RPM
+            limit = float(adcs_components.config["rw"]["max_speed_rpm"])
+            max_rpm = float(np.max(np.abs(rw_rpm)))
+            if max_rpm > limit + 3.0:
+                raise AssertionError(f"Reaction wheel physical speed limit exceeded: {max_rpm} > {limit}")
+            with (output / "adcs02_reaction_wheels.csv").open(
+                    "w", newline="", encoding="utf-8") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(["time_s", "wheel_1_rpm", "wheel_2_rpm", "wheel_3_rpm"])
+                for ti, data in zip(times, rw_rpm):
+                    writer.writerow([float(ti), *map(float, data)])
+            adcs_evidence["actual_max_abs_rw_speed_rpm"] = max_rpm
+            adcs_evidence["rw_speed_limit_rpm"] = limit
+            adcs_evidence["rw_motor_torque_limit_nm"] = float(adcs_components.config["rw"]["max_torque_nm"])
+            adcs_evidence["actuation"] = "physical_basilisk_reactionWheelStateEffector"
+            (output / "adcs_summary.json").write_text(
+                json.dumps(adcs_evidence, ensure_ascii=False, indent=2), encoding="utf-8")
+
         print(
             "ADCS pointing: initial boresight error "
             f"{adcs_evidence['initial_boresight_error_deg']:.3f} deg; "
@@ -690,6 +732,7 @@ def main() -> None:
         "payload": payload_evidence,
         "adcs": adcs_evidence,
         "mission": mission_evidence,
+        "actuator": args.actuator if adcs_components is not None else None,
         "vizard": {
             "requested": plan.viz_mode != "off",
             "mode": plan.viz_mode,
@@ -737,7 +780,10 @@ def main() -> None:
         from experiments.payload_01.integration import CONFIG as PAYLOAD_CONFIG
         input_files["payload_config"] = (PAYLOAD_CONFIG, payload_cfg, payload_config_sha)
     if adcs_components is not None:
-        from experiments.adcs_01.integration import CONFIG as ADCS_CONFIG
+        if args.actuator == "rw":
+            from experiments.adcs_02.integration import CONFIG as ADCS_CONFIG
+        else:
+            from experiments.adcs_01.integration import CONFIG as ADCS_CONFIG
         input_files["adcs_config"] = (
             ADCS_CONFIG, adcs_components.config, adcs_components.config_sha256
         )
