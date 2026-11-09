@@ -589,9 +589,60 @@ def main() -> None:
     )
     print("Initializing Basilisk...",flush=True)
     sim.InitializeSimulation()
-    sim.ConfigureStopTime(macros.sec2nano(plan.horizon_s))
     print("Computing ground access with rotating Earth...",flush=True)
-    sim.ExecuteSimulation()
+    multi_events=[]
+    sample_target_ids=None
+    if args.multi_target:
+        from experiments.mission_03.supervisor import Supervisor
+        supervisor=Supervisor(tuple(s["id"] for s in multi_targets),
+                              float(multi_cfg["energy_reserve_wh"]))
+        sample_target_ids=[]
+        elapsed=0.0
+        interval=float(multi_cfg["command_interval_s"])
+        nominal_tx=-float(mission_components.config["downlink"]["rate_bits_per_s"])
+        # Conservative reserve for one command interval of all mission loads.
+        reserve_guard=(
+            float(power_components.config["base_load_w"])+
+            float(power_components.config["imaging_load_w"])+
+            float(power_components.config["transmitter_load_w"])
+        )*interval/3600.0
+        while elapsed+step*0.5<plan.horizon_s:
+            active_idx=supervisor.active_index
+            next_stop=min(plan.horizon_s,elapsed+interval)
+            sim.ConfigureStopTime(macros.sec2nano(next_stop))
+            sim.ExecuteSimulation()
+            size=len(mission_components.instrument_data_rec.baudRate)
+            new_count=size-len(sample_target_ids)
+            if new_count<0:
+                raise AssertionError("Lost recorded simulation samples")
+            sample_target_ids.extend([multi_targets[active_idx]["id"]]*new_count)
+            elapsed=next_stop
+            produced=int(np.count_nonzero(
+                np.asarray(mission_components.instrument_data_rec.baudRate,dtype=float)>0))
+            energy=float(power_components.battery_rec.storageLevel[-1])/3600.0
+            switched,allow=supervisor.update(elapsed,produced,energy,guard_wh=reserve_guard)
+            if switched:
+                upcoming=multi_targets[supervisor.active_index]
+                target.specifyLocation(
+                    math.radians(float(upcoming["latitude_deg"])),
+                    math.radians(float(upcoming["longitude_deg"])),
+                    float(upcoming["altitude_m"]),
+                )
+                mission_components.instrument.nodeDataName=str(upcoming["id"])
+                if viz is not None:
+                    vizSupport.targetLineList[0].toBodyName=str(upcoming["name"])
+                    vizSupport.updateTargetLineList(viz)
+                print(f"PHYSICAL RETARGET {elapsed:.1f}s -> {upcoming['id']}",flush=True)
+            # Controller's attitude/access gates remain Basilisk; the supervisor
+            # inhibits NEW products below the reserve, not their attitude physics.
+            mission_components.controller.imaged=int(supervisor.finished_capturing or not allow)
+            mission_components.transmitter.nodeBaudRate=nominal_tx if allow else 0.0
+        multi_events=supervisor.events
+        if len(sample_target_ids)!=len(access_rec.times()):
+            raise RuntimeError("Target labels and spacecraft records have different length")
+    else:
+        sim.ConfigureStopTime(macros.sec2nano(plan.horizon_s))
+        sim.ExecuteSimulation()
 
     times=np.asarray(access_rec.times(),dtype=np.float64)*1e-9
     rs=np.asarray(sc_rec.r_BN_N,dtype=np.float64)
@@ -615,9 +666,20 @@ def main() -> None:
     # Independent rotation check uses the FIRST recorded ground position
     # to avoid asserting a physical UTC/Greenwich epoch. Checks the change
     # in inertial position against Earth spin omega, not its absolute angle.
-    rotation_expected=np.asarray([
-        rotate_z(tuple(rg[0]),omega*(t-times[0])) for t in times
-    ])
+    if sample_target_ids is None:
+        rotation_expected=np.asarray([
+            rotate_z(tuple(rg[0]),omega*(t-times[0])) for t in times
+        ])
+    else:
+        rotation_expected=np.zeros_like(rg)
+        ids=np.asarray(sample_target_ids)
+        for label in dict.fromkeys(sample_target_ids):
+            indices=np.flatnonzero(ids==label)
+            first=int(indices[0])
+            rotation_expected[indices]=np.asarray([
+                rotate_z(tuple(rg[first]),omega*(times[i]-times[first]))
+                for i in indices
+            ])
     max_rotation_difference_m=float(np.max(np.linalg.norm(rg-rotation_expected,axis=1)))
     alt_ground=float(tcfg["altitude_m"])
     ground_radii=np.linalg.norm(rg,axis=1)
