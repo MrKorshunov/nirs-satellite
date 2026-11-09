@@ -208,7 +208,7 @@ def _write_outputs(
     if n < 3 or any(v.shape!=(n,3) for v in expected_vector):
         raise AssertionError("Mission03 physical vector recorders are not aligned")
     if any(v.shape!=(n,) for v in expected_scalar) or rws.shape!=(n,3):
-        raise AssertionError("Mission03 scalar or wheel recorders are not aligned")
+        raise AssertionError(f"Mission03 scalar or wheel recorders are not aligned: n={n}, scalars={[a.shape for a in expected_scalar]}, wheels={rws.shape}")
     for rec in (state,target_rec,target_access,adcs.rw_recorder,
                 adcs.guidance_recorder,data.station_access_rec,
                 data.instrument_data_rec,data.transmitter_rec,
