@@ -1,0 +1,77 @@
+name: Physical multi-target Mission 03
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/ground_01/**'
+      - 'experiments/mission_01/**'
+      - 'experiments/mission_03/**'
+      - 'experiments/power_01/**'
+      - 'inputs/**'
+      - 'nirs_satellite/**'
+      - 'tests/test_mission03_supervisor.py'
+      - '.github/workflows/mission03.yml'
+  push:
+    branches: [main]
+
+jobs:
+  physical-multitarget-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate command supervisor and physical target input data
+        run: python -m unittest tests.test_mission03_supervisor -v
+      - name: Install Basilisk pinned from the verified single-satellite reference
+        run: python -m pip install "bsk[all,examples]==2.12.2"
+      - name: Run one physical Basilisk spacecraft with two targets
+        run: python -m experiments.mission_03.run_mission --output-name mission03_linux_acceptance
+      - name: Verify two independent physical captures and resource checks
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("results/mission03_linux_acceptance")
+          data=json.loads((p/"mission03_summary.json").read_text())
+          summary=json.loads((p/"summary.json").read_text())
+          assert data["checks_passed"] and summary["checks_passed"]
+          assert data["capture_count"]==2
+          assert data["physical_target_switch_count"]==1
+          assert data["generated_bits"]==16000000
+          assert abs(data["balance_error_bits"])<=data["balance_tolerance_bits"]
+          assert data["battery_min_wh"]>=data["battery_reserve_wh"]-1
+          assert (p/"mission03_states.csv").exists()
+          assert (p/"mission03_dataflow.png").exists()
+          print("MISSION03: PHYSICAL TWO-TARGET BASILISK ACCEPTED",data["captures"])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mission03-linux
+          path: results/mission03_linux_acceptance/
+          if-no-files-found: warn
+
+  physical-multitarget-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install Basilisk
+        run: python -m pip install "bsk[all,examples]==2.12.2"
+      - name: Run physical retargeting and record Vizard
+        run: python -m experiments.mission_03.run_mission --viz-mode file --viz-step-s 10 --output-name mission03_windows_acceptance
+      - name: Validate multiple physically generated images and Vizard
+        run: |
+          python -c "import json,pathlib; p=pathlib.Path('results/mission03_windows_acceptance'); m=json.loads((p/'mission03_summary.json').read_text()); s=json.loads((p/'summary.json').read_text()); assert m['checks_passed'] and s['checks_passed']; assert m['capture_count']==2 and m['physical_target_switch_count']==1; assert s['vizard']['file_created']; print('WINDOWS PHYSICAL MULTI-TARGET ACCEPTED')"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mission03-windows
+          path: results/mission03_windows_acceptance/
+          if-no-files-found: warn
