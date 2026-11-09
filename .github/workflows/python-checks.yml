@@ -346,7 +346,7 @@ jobs:
         run: |
           $folder = Join-Path $env:RUNNER_TEMP 'НИР'
           New-Item -Path $folder -ItemType Directory -Force | Out-Null
-          Copy-Item -Path '.\experiments', '.\nirs_satellite' -Destination $folder -Recurse -Force
+          Copy-Item -Path '.\experiments', '.\nirs_satellite', '.\inputs' -Destination $folder -Recurse -Force
           Push-Location $folder
           try {
             python -m experiments.orbit_01.run_orbit
