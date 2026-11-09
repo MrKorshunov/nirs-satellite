@@ -19,8 +19,8 @@
     },
     {
       "id": "TARGET_02_IMAGE",
-      "lat_deg": 14.3,
-      "lon_deg": 43.12,
+      "lat_deg": 14.7,
+      "lon_deg": 43.35,
       "altitude_m": 0,
       "minimum_elevation_deg": 10,
       "maximum_range_m": -1,
