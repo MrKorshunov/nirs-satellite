@@ -752,7 +752,7 @@ def main() -> None:
             flush=True,
         )
     mission_evidence = None
-    if mission_components is not None:
+    if mission_components is not None and not args.multi_target:
         from experiments.mission_01.accounting import analyse_run as analyse_mission
         mission_recorder_set = (
             mission_components.station_access_rec,
@@ -789,6 +789,33 @@ def main() -> None:
             f"remaining {mission_evidence['final_stored_bits']/8e6:.3f} MB",
             flush=True,
         )
+    if args.multi_target:
+        from experiments.mission_03.accounting import analyse_multi
+        mission_evidence=analyse_multi(
+            output=output,time_s=times,position_N_m=rs,target_N_m=rg,
+            sigma_BN=np.asarray(sc_rec.sigma_BN,dtype=float),
+            target_access=access,
+            station_access=np.asarray(mission_components.station_access_rec.hasAccess,dtype=bool),
+            instrument_bits_s=np.asarray(mission_components.instrument_data_rec.baudRate,dtype=float),
+            transmit_bits_s=np.asarray(mission_components.transmitter_rec.baudRate,dtype=float),
+            storage_bits=np.asarray(mission_components.storage_rec.storageLevel,dtype=float),
+            storage_names=np.asarray(mission_components.storage_rec.storedDataName),
+            storage_partitions=np.asarray(mission_components.storage_rec.storedData,dtype=float),
+            command=np.asarray(mission_components.capture_command_rec.deviceCmd,dtype=int),
+            guidance_sigma=np.asarray(adcs_components.guidance_recorder.sigma_BR,dtype=float),
+            guidance_rate=np.asarray(adcs_components.guidance_recorder.omega_BR_B,dtype=float),
+            rw_rpm=np.asarray(adcs_components.rw_recorder.wheelSpeeds,dtype=float)[:,:3]/macros.RPM,
+            battery_wh=np.asarray(power_components.battery_rec.storageLevel,dtype=float)/3600,
+            target_ids=sample_target_ids,targets=multi_targets,
+            config=mission_components.config,
+            power_reserve_wh=float(multi_cfg["energy_reserve_wh"]),
+            events=multi_events,
+            boresight_B=adcs_components.config["instrument_boresight_B"],
+        )
+        print("Mission03: physical captures",mission_evidence["capture_count"],
+              "generated bits",mission_evidence["generated_bits"],
+              "transmitted",mission_evidence["transmitted_bits"],flush=True)
+
     power_evidence = None
     if power_components is not None:
         from experiments.power_01.analysis import analyse_run as analyse_power
@@ -906,6 +933,9 @@ def main() -> None:
     summary["checks_passed"]=all(
         summary["checks"][key]<=limit for key,limit in summary["check_limits"].items()
     )
+    if args.multi_target:
+        summary["mission03"] = mission_evidence
+        summary["checks_passed"] = summary["checks_passed"] and bool(mission_evidence["checks_passed"])
     (output/"summary.json").write_text(
         json.dumps(summary,ensure_ascii=False,indent=2),encoding="utf-8"
     )
@@ -913,6 +943,11 @@ def main() -> None:
         "ground_config": (CONF, params, ground_config_sha),
         "orbit_config": (orbit_config, orbit_cfg, orbit_config_sha),
     }
+    if args.multi_target:
+        path_multi=input_path("multitarget_demo")
+        input_files["multi_target_plan"]=(
+            path_multi,multi_cfg,hashlib.sha256(path_multi.read_bytes()).hexdigest()
+        )
     if args.payload:
         from experiments.payload_01.integration import CONFIG as PAYLOAD_CONFIG
         input_files["payload_config"] = (PAYLOAD_CONFIG, payload_cfg, payload_config_sha)
@@ -980,7 +1015,9 @@ def main() -> None:
     print("Input provenance and definitions: run_manifest.json and RESULTS_EXPLAINED.md")
     if adcs_evidence:
         print("ADCS diagnostics: adcs_states.csv and adcs_summary.json")
-    if mission_evidence:
+    if mission_evidence and args.multi_target:
+        print("Physical multi-target: mission03_summary.json, mission03_events.json, mission03_states.csv")
+    elif mission_evidence:
         print("Mission data chain: mission_states.csv, mission_summary.json and mission_dataflow.png")
     if payload_evidence:
         print(
