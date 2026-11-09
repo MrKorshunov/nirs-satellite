@@ -99,6 +99,8 @@ def main() -> None:
         "--mission", action="store_true",
         help="One-spacecraft data cycle: real pointing, synthetic capture, memory and ground downlink",
     )
+    parser.add_argument("--multi-target", action="store_true",
+                        help="Mission03: actual Basilisk wheel retargeting and multiple synthetic products")
     parser.add_argument(
         "--mission-profile", choices=["nominal", "slow_link"], default="nominal",
         help="Mission 01 fixed-rate profile for controlled delivery comparison",
@@ -123,6 +125,15 @@ def main() -> None:
     parser.add_argument("--plan-only", action="store_true",
                         help="Show validated plan and quit without running simulation")
     args = parser.parse_args()
+    if args.multi_target and (not args.mission or args.actuator!="rw" or not args.power):
+        parser.error("--multi-target requires --mission --actuator rw --power")
+    multi_cfg=None
+    multi_targets=None
+    if args.multi_target:
+        from experiments.mission_03.parameters import validate as validate_multi
+        path_multi=input_path("multitarget_demo")
+        multi_cfg=json.loads(path_multi.read_text(encoding="utf-8"))
+        multi_targets=multi_cfg["targets"]
     if args.mission and (args.adcs or args.payload):
         parser.error("--mission includes physical ADCS and its own synthetic payload; do not combine modes")
     if not args.mission and args.mission_profile != "nominal":
@@ -256,6 +267,13 @@ def main() -> None:
     )
     print("Origin: inputs/physical/orbit.json + earth_target.json; no real UTC epoch", flush=True)
     step = plan.step_s
+    if args.multi_target:
+        common_hardware={
+            "mission":json.loads(input_path("camera_storage_radio").read_text(encoding="utf-8")),
+            "power":json.loads(input_path("power").read_text(encoding="utf-8")),
+        }
+        validate_multi(multi_cfg,common_hardware,step)
+        preview["mission03"]={"targets":multi_targets,"reserve_wh":multi_cfg["energy_reserve_wh"]}
     output = ROOT / "results" / plan.output_name
     output.mkdir(parents=True, exist_ok=True)
     if plan.expected_samples >= 10_000:
@@ -320,11 +338,18 @@ def main() -> None:
     sim.AddModelToTask(task,sat,ModelPriority=150)
 
     target=groundLocation.GroundLocation()
-    target.ModelTag=str(tcfg["name"])
+    target.ModelTag=str(multi_targets[0]["name"] if multi_targets else tcfg["name"])
     target.planetRadius=radius
     target.minimumElevation=min_elevation
     target.maximumRange=float(tcfg["maximum_range_m"])
-    target.specifyLocation(latitude,longitude,float(tcfg["altitude_m"]))
+    if multi_targets:
+        first=multi_targets[0]
+        target.minimumElevation=math.radians(float(first["minimum_elevation_deg"]))
+        target.specifyLocation(math.radians(float(first["latitude_deg"])),
+                               math.radians(float(first["longitude_deg"])),
+                               float(first["altitude_m"]))
+    else:
+        target.specifyLocation(latitude,longitude,float(tcfg["altitude_m"]))
     target.addSpacecraftToModel(sat.scStateOutMsg)
     target.planetInMsg.subscribeTo(eph.planetOutMsgs[0])
     sim.AddModelToTask(task,target,ModelPriority=100)
@@ -351,7 +376,7 @@ def main() -> None:
         mission_components = attach_mission(
             sim, task, sat, eph.planetOutMsgs[0], radius,
             target.accessOutMsgs[0], adcs_components.guidance_msg, step,
-            profile=args.mission_profile
+            profile=args.mission_profile,physical_targets=multi_targets
         )
 
     power_components = None
@@ -487,17 +512,31 @@ def main() -> None:
             )
         vizSupport.addLocation(
             viz,
-            stationName=str(tcfg["name"]),
+            stationName=str(multi_targets[0]["name"] if multi_targets else tcfg["name"]),
             parentBodyName=planet_display_name,
             r_GP_P=r_ground_fixed,
             gHat_P=normal_fixed,
-            label="TARGET 14N 43E",
+            label="SYNTHETIC TARGET 1" if multi_targets else "TARGET 14N 43E",
             markerScale=15.0,
             color=[255, 0, 255, 255],
             isHidden=False,
             fieldOfView=math.radians(160.0),
             range=2_000_000.0,
         )
+        if multi_targets:
+            for dest in multi_targets[1:]:
+                phi=math.radians(float(dest["latitude_deg"]))
+                lam=math.radians(float(dest["longitude_deg"]))
+                rad=radius+float(dest["altitude_m"])
+                xyz=np.array([rad*math.cos(phi)*math.cos(lam),rad*math.cos(phi)*math.sin(lam),
+                              rad*math.sin(phi)],dtype=float)
+                vizSupport.addLocation(
+                    viz,stationName=str(dest["name"]),parentBodyName=planet_display_name,
+                    r_GP_P=xyz,gHat_P=xyz/np.linalg.norm(xyz),
+                    label=str(dest["id"]),markerScale=15.0,
+                    color=[235,150,50,255],isHidden=False,
+                    fieldOfView=math.radians(160),range=2_000_000.0,
+                )
         if mission_components is not None:
             station = mission_components.config["downlink"]["ground_station"]
             st_lat = math.radians(float(station["latitude_deg"]))
@@ -521,14 +560,14 @@ def main() -> None:
         # The target line is always drawn, including when the Earth occludes
         # the target: physical access remains defined by access.csv.
         vizSupport.createTargetLine(
-            viz, toBodyName=str(tcfg["name"]),
+            viz, toBodyName=str(multi_targets[0]["name"] if multi_targets else tcfg["name"]),
             lineColor=[255, 0, 255, 255],
         )
         viz.settings.showLocationLabels = 1
         viz.settings.showLocationCones = -1
         viz.settings.showLocationCommLines = -1
         viz_location_names = [str(location.stationName) for location in viz.locations]
-        if str(tcfg["name"]) not in viz_location_names:
+        if str(multi_targets[0]["name"] if multi_targets else tcfg["name"]) not in viz_location_names:
             raise RuntimeError(
                 f"Vizard target marker was not registered: {viz_location_names!r}"
             )
