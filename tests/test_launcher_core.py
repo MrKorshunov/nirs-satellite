@@ -27,13 +27,12 @@ class LauncherPlans(unittest.TestCase):
         kw.update(overrides)
         return build_plan(**kw)
 
-    def test_physical_uses_reaction_wheels_power_and_official_mission(self):
+    def test_physical_uses_unified_two_target_basilisk_executor(self):
         plan = self.make()
         self.assertEqual(plan.argv[0], str(self.python))
-        self.assertIn("experiments.mission_01.run_mission", plan.argv)
-        self.assertIn("--actuator", plan.argv)
-        self.assertIn("rw", plan.argv)
-        self.assertIn("--power", plan.argv)
+        self.assertIn("experiments.mission_03.run", plan.argv)
+        self.assertIn("--require-two-captures", plan.argv)
+        self.assertNotIn("--power", plan.argv)  # Physical RW + power are built in
         self.assertIn("--viz-mode", plan.argv)
         self.assertIn("file", plan.argv)
         self.assertEqual(plan.result_dir, self.root / "results" / "sample_123")
