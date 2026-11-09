@@ -1,0 +1,43 @@
+{
+  "scenario_id": "adcs_02_basilisk_real_reaction_wheel_state_effector",
+  "provenance": "SYNTHETIC physical reaction-wheel dynamics demonstrator; NOT flight-calibrated",
+  "initial_sigma_BN_mrp": [
+    0.3,
+    -0.18,
+    0.12
+  ],
+  "initial_omega_BN_B_rad_s": [
+    0,
+    0,
+    0
+  ],
+  "instrument_boresight_B": [
+    0,
+    0,
+    1
+  ],
+  "feedback_gain_K_Nm": 0.1,
+  "rate_gain_P_Nm_s": 0.2,
+  "integral_gain_Ki": -1,
+  "minimum_sample_step_s": 0.01,
+  "maximum_sample_step_s": 1,
+  "suggested_step_s": 0.5,
+  "readiness_boresight_max_deg": 5,
+  "readiness_tracking_rate_max_rad_s": 0.01,
+  "assumptions": [
+    "Basilisk reactionWheelStateEffector and rwMotorTorque coupled to rigid-body dynamics",
+    "Three orthogonal custom synthetic balanced reaction wheels",
+    "Torque and speed saturations are enabled; no real wheel datasheet",
+    "Ideal simpleNav, no sensor noise or momentum dumping",
+    "Boresight and target Earth geometry same as ADCS01",
+    "Battery/solar-panel physical models remain separate"
+  ],
+  "rw": {
+    "spin_inertia_kg_m2": 0.0005,
+    "max_torque_nm": 0.01,
+    "max_momentum_nms": 0.05,
+    "max_speed_rpm": 950,
+    "initial_speed_rpm": 0,
+    "number_of_wheels": 3
+  }
+}
