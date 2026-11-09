@@ -59,6 +59,16 @@ class Tests(unittest.TestCase):
         self.assertFalse(permitted(5.4,previously_permitted=False,**kwargs))
         self.assertTrue(permitted(5.65,previously_permitted=False,**kwargs))
 
+    def test_low_energy_start_is_allowed_but_forces_safe_mode(self):
+        cfg=fixture()
+        cfg["reserve_wh"]=64.95
+        cfg["reserve_guard_wh"]=0.15
+        cfg["battery_reenable_hysteresis_wh"]=0.5
+        self.check(cfg)
+        self.assertFalse(permitted(
+            65, reserve_wh=64.95, guard_wh=0.15,
+            hysteresis_wh=0.5, previously_permitted=True))
+
     def test_boundary_sample_belongs_to_first_target(self):
         self.assertEqual(stage_for_sample(85.0,85.0,.5),0)
         self.assertEqual(stage_for_sample(85.5,85.0,.5),1)
