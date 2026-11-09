@@ -66,118 +66,38 @@ def _ground_r_fixed(site, earth_radius):
                      radius * math.sin(lat)], dtype=float)
 
 
-def _draw_vizard(sim, process, task, sc, grav_earth, data, targets, earth_radius,
-                 output_name, cadence, minimal=False):
+def _start_vizard_recording(sim, process, task, spacecraft, output_name, cadence):
+    """Use Basilisk's stable native playback writer, without HUD injections.
+
+    Mission03 draws both target sites through addLocation() below; state
+    diagnostics and instrument/RW/battery panels live in CSV/JSON/PNG.
+    """
     if not vizSupport.vizFound:
         raise RuntimeError("Basilisk Vizard interface not available")
-    from Basilisk.architecture import messaging
-    from Basilisk.simulation import vizInterface
-
-    viz_dir = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "NIRS_Satellite" / "viz"
+    viz_dir=Path(os.environ.get("LOCALAPPDATA") or Path.home())/"NIRS_Satellite"/"viz"
     if not str(viz_dir).isascii():
-        raise RuntimeError("Vizard playback path must be ASCII-only on Windows")
-    viz_dir.mkdir(parents=True, exist_ok=True)
-    bin_path = viz_dir / f"{output_name}.bin"
+        raise RuntimeError("Vizard playback directory must be ASCII-only")
+    viz_dir.mkdir(parents=True,exist_ok=True)
+    bin_path=viz_dir/f"{output_name}.bin"
     if bin_path.exists():
         bin_path.unlink()
-
-    viz_task = task
-    if cadence > 0.5:
-        viz_task = "mission03VizTask"
-        process.addTask(sim.CreateNewTask(viz_task, macros.sec2nano(cadence)), taskPriority=0)
-
-    if minimal:
-        viz = vizSupport.enableUnityVisualization(
-            sim, viz_task, sc, saveFile=str(bin_path))
-        if viz is None:
-            raise RuntimeError("Minimal Vizard initialization failed")
-        return bin_path, viz
-
-    sensor = vizInterface.GenericSensor()
-    sensor.label = "MISSION03 REAL CAMERA COMMAND"
-    sensor.r_SB_B = [0.0, 0.0, 0.2]
-    sensor.normalVector = [0.0, 0.0, 1.0]
-    sensor.fieldOfView.push_back(math.radians(20))
-    sensor.color = vizInterface.IntVector([255, 100, 20, 160])
-    rdr = messaging.DeviceCmdMsgReader()
-    rdr.subscribeTo(data.capture_command_msg)
-    sensor.genericSensorCmdInMsg = rdr
-
-    link = vizInterface.Transceiver()
-    link.label = "GROUND LINK"
-    link.r_SB_B = [0.2, 0.0, 0.0]
-    link.normalVector = [1.0, 0.0, 0.0]
-    link.fieldOfView = math.radians(40)
-    link.color = vizInterface.IntVector([0, 220, 110, 255])
-    lrdr = messaging.DataNodeUsageMsgReader()
-    lrdr.subscribeTo(data.transmitter_data_msg)
-    link.transceiverStateInMsgs.push_back(lrdr)
-
-    store = vizInterface.GenericStorage()
-    store.label = "PHYSICAL MEMORY - TWO PARTITIONS"
-    store.units = "bits"
-    store.color = vizInterface.IntVector([0, 130, 240, 255, 230, 80, 30, 255])
-    store.thresholds = vizInterface.IntVector([50])
-    srdr = messaging.DataStorageStatusMsgReader()
-    srdr.subscribeTo(data.storage_status_msg)
-    store.dataStorageStateInMsg = srdr
-
-    viz = vizSupport.enableUnityVisualization(
-        sim, viz_task, sc, saveFile=str(bin_path),
-        genericSensorList=sensor, transceiverList=link, genericStorageList=store,
-    )
+    viz_task=task
+    if cadence>0.5:
+        viz_task="mission03VizTask"
+        process.addTask(sim.CreateNewTask(
+            viz_task,macros.sec2nano(cadence)),taskPriority=0)
+    viz=vizSupport.enableUnityVisualization(
+        sim,viz_task,spacecraft,saveFile=str(bin_path))
     if viz is None:
-        raise RuntimeError("Unable to initialize Basilisk Vizard recording")
-    vizSupport.setInstrumentGuiSetting(
-        viz, showGenericSensorLabels=True,
-        showTransceiverLabels=True, showGenericStoragePanel=True,
-    )
-    parent = str(grav_earth.displayName)
-    if parent not in [str(b.bodyName) for b in viz.gravBodyInformation]:
-        raise RuntimeError("Vizard planet label does not match physical Earth")
-    for j, site in enumerate(targets):
-        r = _ground_r_fixed(site, earth_radius)
-        vizSupport.addLocation(
-            viz, stationName=site["id"], parentBodyName=parent,
-            r_GP_P=r, gHat_P=r/np.linalg.norm(r),
-            label=f"IMAGE TARGET {j+1}", markerScale=15,
-            color=[255, 0, 255, 255] if j == 0 else [255, 160, 30, 255],
-            isHidden=False, fieldOfView=math.radians(160), range=2e6,
-        )
-    st = data.config["downlink"]["ground_station"]
-    radius = earth_radius + float(st["altitude_m"])
-    st_pos = _ground_r_fixed({
-        "lat_deg":st["latitude_deg"],"lon_deg":st["longitude_deg"],
-        "altitude_m":st["altitude_m"]
-    }, earth_radius)
-    vizSupport.addLocation(
-        viz, stationName=st["name"], parentBodyName=parent,
-        r_GP_P=st_pos, gHat_P=st_pos/np.linalg.norm(st_pos),
-        label="GROUND STATION", markerScale=10,
-        color=[0, 220, 100, 255], isHidden=False,
-        fieldOfView=math.radians(160), range=2e6,
-    )
-    vizSupport.createTargetLine(
-        viz, toBodyName=targets[0]["id"],
-        lineColor=[255, 0, 255, 255],
-    )
-    # Fixed lines to BOTH markers avoid mutating native Vizard internals mid-run.
-    vizSupport.createTargetLine(
-        viz, toBodyName=targets[1]["id"],
-        lineColor=[255, 160, 30, 255],
-    )
-    viz.settings.showLocationLabels = 1
-    viz.settings.showLocationCones = -1
-    viz.settings.showLocationCommLines = -1
-    return bin_path, viz
-
+        raise RuntimeError("Unable to start Basilisk Vizard recording")
+    return bin_path,viz
 
 
 def _draw_vizard_markers(sim, process, task, sc, earth, data, targets,
                          earth_radius, output_name, cadence):
     """Stable target/ground-station Vizard profile without native HUD panels."""
-    bin_path,viz=_draw_vizard(sim,process,task,sc,earth,data,targets,
-                             earth_radius,output_name,cadence,minimal=True)
+    bin_path,viz=_start_vizard_recording(sim,process,task,sc,
+                                        output_name,cadence)
     parent=str(earth.displayName)
     if parent not in [str(b.bodyName) for b in viz.gravBodyInformation]:
         raise RuntimeError("Vizard planet display body is not actual modeled Earth")
@@ -372,7 +292,6 @@ def main():
     parser.add_argument("--output-name",default="mission03_two_targets")
     parser.add_argument("--viz-mode",choices=("file","off"),default="file")
     parser.add_argument("--viz-step-s",type=float,default=10)
-    parser.add_argument("--viz-minimal",action="store_true",help="Diagnose minimal Vizard export without native HUD/target objects")
     parser.add_argument("--require-two-captures",action="store_true",
                         help="Fail CI if two physically generated products were not observed")
     args=parser.parse_args()
