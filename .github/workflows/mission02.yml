@@ -174,3 +174,45 @@ jobs:
           name: power01-physical-battery
           path: results/power01_physical_acceptance/
           if-no-files-found: warn
+
+  basilisk-rw-power-datachain:
+    needs: resource-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install Basilisk 2.12.2
+        run: python -m pip install "bsk[all,examples]==2.12.2"
+      - name: Integrated actual RW + physical power + imaging/storage/radio
+        run: python -m experiments.mission_01.run_mission --actuator rw --power --output-name mission01_rw_power_datachain
+      - name: Assert physical state, capture, memory, radio, and power
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("results/mission01_rw_power_datachain")
+          summary=json.loads((p/"summary.json").read_text())
+          rw=json.loads((p/"adcs_summary.json").read_text())
+          power=json.loads((p/"power_summary.json").read_text())
+          mission=json.loads((p/"mission_summary.json").read_text())
+          assert summary["checks_passed"]
+          assert rw["actuation"]=="physical_basilisk_reactionWheelStateEffector"
+          assert rw["actual_max_abs_rw_speed_rpm"]<=rw["rw_speed_limit_rpm"]+3
+          assert power["checks_passed"]
+          assert mission["checks_passed"] and mission["capture_count"]==1
+          assert mission["generated_bits"]==8000000
+          assert 0 <= mission["downlinked_bits"] <= mission["generated_bits"]
+          assert abs(mission["data_conservation_error_bits"])<100000
+          assert (p/"adcs02_reaction_wheels.csv").is_file()
+          assert (p/"power_states.csv").is_file()
+          print("PHYSICAL RW + POWER + BASILISK MISSION01:", mission["delivery_fraction"])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: basilisk-rw-power-mission
+          path: results/mission01_rw_power_datachain/
+          if-no-files-found: warn
