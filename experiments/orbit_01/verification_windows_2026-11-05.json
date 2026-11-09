@@ -1,0 +1,19 @@
+{
+  "method": "10s versus 5s with matched epochs and independent analytic checks",
+  "coarse_step_s": 10.0,
+  "fine_step_s": 5.0,
+  "common_epochs": 568,
+  "maximum_position_difference_m": 0.015051470544316896,
+  "maximum_velocity_difference_m_s": 1.641793901079604e-05,
+  "coarse_analytic_max_position_error_m": 0.016029442266501312,
+  "fine_analytic_max_position_error_m": 0.0009783524351781774,
+  "coarse_analytic_max_velocity_error_m_s": 1.7477795308832838e-05,
+  "fine_analytic_max_velocity_error_m_s": 1.0602043602402924e-06,
+  "analytic_validation_passed_both": true,
+  "limitations": [
+    "Two steps alone do not demonstrate the formal convergence order",
+    "The analytical reference is valid only for a point-mass circular orbit",
+    "Reference uses initial state recorded by Basilisk: separate absolute initial-condition checks also required"
+  ],
+  "fine_step_not_materially_worse": true
+}

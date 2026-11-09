@@ -1,0 +1,22 @@
+{
+  "scenario_id": "adcs_01_physical_attitude_pointing",
+  "provenance": "SYNTHETIC exploratory attitude model, NOT a real spacecraft ADCS",
+  "initial_sigma_BN_mrp": [0.30, -0.18, 0.12],
+  "initial_omega_BN_B_rad_s": [0.0, 0.0, 0.0],
+  "instrument_boresight_B": [0.0, 0.0, 1.0],
+  "feedback_gain_K_Nm": 0.10,
+  "rate_gain_P_Nm_s": 0.20,
+  "integral_gain_Ki": -1.0,
+  "minimum_sample_step_s": 0.01,
+  "maximum_sample_step_s": 1.0,
+  "suggested_step_s": 0.5,
+  "readiness_boresight_max_deg": 5.0,
+  "readiness_tracking_rate_max_rad_s": 0.01,
+  "assumptions": [
+    "Rigid-body dynamics from Basilisk spacecraft with nominal 10 kg hub inertia from orbit config",
+    "Perfect spacecraft navigation from simpleNav without sensor errors",
+    "An ideal continuous three-axis external torque from extForceTorque with no saturation or hardware limits",
+    "Constant locationPointing aimed at one rotating-Earth ground target even while Earth occludes it",
+    "Only geometric and pointing readiness; no camera FOV, exposure, illumination, cloud, storage or downlink"
+  ]
+}

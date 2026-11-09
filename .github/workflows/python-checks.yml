@@ -1,0 +1,440 @@
+name: Python checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Check Python syntax
+        run: python -m compileall -q nirs_satellite experiments tests main.py explain.py
+      - name: Run independent tests without external scientific packages
+        run: python -m unittest discover -s tests -v
+
+  basilisk-orbit-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install pinned simulation requirements
+        run: python -m pip install "bsk[all,examples]==2.12.2"
+      - name: Run the physical orbit baseline
+        run: python -m experiments.orbit_01.run_orbit
+      - name: Compare numerical states with independent analytical orbit
+        run: python -m experiments.orbit_01.validate_orbit
+      - name: Compare orbital propagation steps with analytical reference
+        run: python -m experiments.orbit_01.compare_steps
+      - name: Run Ground 01 with Basilisk on rotating Earth
+        run: python -m experiments.ground_01.run_ground
+      - name: Generate one synthetic instrument data product with Basilisk
+        run: |
+          python -m experiments.payload_01.run_payload
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path("results/payload_01/summary.json").read_text(encoding="utf-8"))
+          assert r["product_count"] == 1, r
+          assert r["total_data_bytes_generated"] == 1000000, r
+          assert r["products"][0]["source_access"] is True
+          assert Path("results/payload_01/events.csv").is_file()
+          print("Payload 01 synthetic generation: PASS", r["total_data_bytes_generated"], "bytes")
+          PY
+      - name: Physical ADCS attitude tracking with independent LOS check
+        run: |
+          python -m experiments.ground_01.run_ground --duration-hours 0.2 --step-s 0.5 --output-name adcs_reference_no_torque
+          python -m experiments.adcs_01.run_adcs --viz-mode file --viz-step-s 10
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          base = Path("results/adcs_reference_no_torque")
+          p = Path("results/adcs_01")
+          g = json.loads((p/"summary.json").read_text(encoding="utf-8"))
+          a = json.loads((p/"adcs_summary.json").read_text(encoding="utf-8"))
+          manifest = json.loads((p/"run_manifest.json").read_text(encoding="utf-8"))
+          assert g["checks_passed"] and a["checks_passed"], (g["checks"], a)
+          assert g["samples"] == a["samples"] == 1441, (g["samples"], a["samples"])
+          assert g["vizard"]["file_created"], g["vizard"]
+          assert a["max_commanded_torque_Nm"] > 0
+          assert a["minimum_boresight_error_deg"] < a["initial_boresight_error_deg"]
+          assert a["maximum_mrp_dcm_orthogonality_error"] < 1e-10
+          assert len(manifest["inputs"]["adcs_config"]["sha256"]) == 64
+          for name in ("adcs_states.csv", "adcs_pointing.png", "adcs_torque.png",
+                       "adcs_summary.json", "RESULTS_EXPLAINED.md"):
+              assert (p/name).is_file(), name
+          with (base/"access.csv").open(newline="") as f:
+              reference = list(csv.DictReader(f))
+          with (p/"access.csv").open(newline="") as f:
+              actual = list(csv.DictReader(f))
+          assert len(reference) == len(actual) == 1441
+          assert all(x["has_access"] == y["has_access"] for x,y in zip(reference, actual))
+          max_position_difference = max(
+              sum((float(x[k])-float(y[k]))**2 for k in
+                   ("sc_x_m","sc_y_m","sc_z_m"))**0.5
+              for x,y in zip(reference, actual)
+          )
+          assert max_position_difference < 0.1, max_position_difference
+          print("ADCS 01 PASS:", a["initial_boresight_error_deg"],
+                a["minimum_boresight_error_deg"],
+                "Nm max:", a["max_commanded_torque_Nm"],
+                "m orbit difference:", max_position_difference)
+          PY
+      - name: Validate one-spacecraft target to storage to ground link
+        run: |
+          python -m experiments.mission_01.run_mission --viz-mode file --viz-step-s 10
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("results/mission_01")
+          g = json.loads((p/"summary.json").read_text(encoding="utf-8"))
+          m = json.loads((p/"mission_summary.json").read_text(encoding="utf-8"))
+          provenance = json.loads((p/"run_manifest.json").read_text(encoding="utf-8"))
+          assert g["checks_passed"] and g["adcs"]["checks_passed"]
+          assert m["checks_passed"] and m["capture_count"] == 1
+          assert m["generated_bits"] == 8000000, m
+          assert m["capture_actual_boresight_error_deg"] <= 5, m
+          assert m["station_access_samples"] > 0, m
+          assert m["transmitting_samples"] > 0, m
+          assert m["downlinked_bits"] > 0 and m["final_stored_bits"] < 8000000, m
+          assert abs(m["data_conservation_error_bits"]) <= 100000, m
+          assert len(provenance["inputs"]["mission_config"]["sha256"]) == 64
+          assert g["vizard"]["file_created"]
+          for name in ("mission_states.csv", "mission_summary.json", "mission_dataflow.png"):
+              assert (p/name).is_file(), name
+          print("Mission single-KA data cycle:", m["capture_time_s"],
+                m["downlinked_bits"], m["final_stored_bits"],
+                "delivery fraction", m["delivery_fraction"])
+          assert m["fully_delivered_within_sampling_tolerance"], m
+          assert m["delivery_fraction"] >= 0.9999, m
+          PY
+      - name: Compare nominal vs slow radio and preserve incomplete delivery
+        run: |
+          python -m experiments.mission_01.run_mission --mission-profile slow_link --output-name mission_01_slow
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          normal = json.loads(Path("results/mission_01/mission_summary.json").read_text())
+          slow = json.loads(Path("results/mission_01_slow/mission_summary.json").read_text())
+          manifest = json.loads(Path("results/mission_01_slow/run_manifest.json").read_text())
+          assert normal["capture_count"] == slow["capture_count"] == 1
+          assert normal["capture_time_s"] == slow["capture_time_s"]
+          assert normal["generated_bits"] == slow["generated_bits"] == 8000000
+          assert normal["downlinked_bits"] > slow["downlinked_bits"]
+          assert normal["final_stored_bits"] < slow["final_stored_bits"]
+          assert abs(slow["data_conservation_error_bits"]) < 0.01, slow
+          assert slow["delivery_fraction"] < 1
+          assert manifest["inputs"]["mission_config"]["path"].endswith("config_slow_link.json")
+          assert manifest["inputs"]["mission_config"]["values"]["downlink"]["rate_bits_per_s"] == 10000
+          print("Radio sensitivity comparison: nominal fraction", normal["delivery_fraction"],
+                "slow fraction", slow["delivery_fraction"])
+          PY
+      - name: Compare actual ADCS pointing with 0.5s and 0.25s control steps
+        run: |
+          python -m experiments.adcs_01.compare_steps
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path("results/adcs_01_step_comparison.json").read_text())
+          assert r["common_sample_times"] == 1441
+          assert r["accepted"], r
+          assert r["max_difference_after_60s_deg"] < 0.01, r
+          assert r["max_difference_during_access_deg"] < 0.01, r
+          print("ADCS sample-rate convergence PASS:",
+                "early transient max", r["max_boresight_difference_deg"], "deg;",
+                "after 60 s", r["max_difference_after_60s_deg"], "deg;",
+                "during geometric access", r["max_difference_during_access_deg"], "deg")
+
+          PY
+      - name: Verify two-hour runtime, sparse Vizard frames, and input provenance
+        run: |
+          python -m experiments.ground_01.run_ground --duration-hours 2 --viz-mode file --viz-step-s 60 --output-name ground_01_2h
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          baseline = Path("results/ground_01")
+          current = Path("results/ground_01_2h")
+          d = json.loads((current/"summary.json").read_text(encoding="utf-8"))
+          m = json.loads((current/"run_manifest.json").read_text(encoding="utf-8"))
+          assert d["requested_duration_s"] == 7200, d
+          assert d["samples"] == 721 and d["last_sample_time_s"] == 7200
+          assert d["checks_passed"], d["checks"]
+          assert d["vizard"]["file_created"] and d["vizard"]["visualization_step_s"] == 60
+          assert m["runtime"]["expected_viz_frames"] == 121
+          assert m["inputs"]["ground_config"]["sha256"] and m["inputs"]["orbit_config"]["values"]
+          assert (current/"RESULTS_EXPLAINED.md").is_file()
+          with (baseline/"access.csv").open(newline="") as f:
+              a = list(csv.DictReader(f))
+          with (current/"access.csv").open(newline="") as f:
+              b = list(csv.DictReader(f))
+          assert len(a) == 568 and len(b) == 721
+          for old, new in zip(a, b):
+              assert old["has_access"] == new["has_access"]
+              assert abs(float(old["elevation_deg"])-float(new["elevation_deg"])) < 1e-7
+          print("Ground two-hour horizon and first-orbit invariance: PASS")
+          PY
+      - name: Check full-day numerical Ground 01 without visualization
+        run: |
+          python -m experiments.ground_01.run_ground --duration-days 1 --output-name ground_01_day1
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("results/ground_01_day1")
+          d = json.loads((p/"summary.json").read_text(encoding="utf-8"))
+          m = json.loads((p/"run_manifest.json").read_text(encoding="utf-8"))
+          assert d["samples"] == 8641 and d["last_sample_time_s"] == 86400
+          assert d["checks_passed"], d["checks"]
+          assert d["access_samples"] > 0
+          assert m["runtime"]["duration_source"] == "days"
+          assert m["runtime"]["horizon_s"] == 86400
+          assert len(m["inputs"]["ground_config"]["sha256"]) == 64
+          print("Ground full day: PASS; windows =", len(d["windows"]))
+          PY
+      - name: Validate live configuration without network/Vizard
+        run: |
+          python - <<'PY'
+          import json, subprocess, sys
+          p = subprocess.run(
+              [sys.executable, "-m", "experiments.ground_01.run_ground",
+               "--duration-days", "1", "--viz-mode", "live",
+               "--speed", "50", "--viz-step-s", "30", "--plan-only"],
+              capture_output=True, text=True, check=True
+          )
+          d = json.loads(p.stdout)
+          assert d["horizon_s"] == 86400
+          assert d["viz_mode"] == "live" and d["live_speed"] == 50
+          assert d["expected_samples"] == 8641
+          assert d["expected_viz_frames"] == 2881
+          print("Live plan validation: PASS (no Vizard connection attempted)")
+          PY
+      - name: Record Ground 01 target and rotating Earth for Vizard
+        run: |
+          python -m experiments.ground_01.run_ground --viz
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d = json.loads(Path("results/ground_01/summary.json").read_text())
+          assert d["checks_passed"]
+          assert d["vizard"]["requested"] and d["vizard"]["file_created"]
+          assert d["vizard"]["earth_attitude_source"].startswith("planetEphemeris")
+          assert d["vizard"]["parent_body_name"] == "earth", d["vizard"]
+          assert d["vizard"]["planet_name_internal"] == "earth_planet_data", d["vizard"]
+          assert d["vizard"]["location_registered"] is True
+          assert d["vizard"]["marker_scale"] >= 10
+          p = Path(d["vizard"]["output_file"])
+          assert p.is_file() and p.stat().st_size > 0
+          # Protobuf output is not proof of on-screen visibility, but it must
+          # actually contain this marker, rather than merely a satellite.
+          assert d["vizard"]["marker_name"].encode() in p.read_bytes(), "Target marker missing in saved playback"
+          print("Vizard Ground marker + rotating Earth playback written", p.stat().st_size)
+          PY
+      - name: Verify ground access output
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("results/ground_01")
+          d=json.loads((p/"summary.json").read_text(encoding="utf-8"))
+          assert d["checks_passed"], d["checks"]
+          assert d["samples"] >= 100
+          assert len(d["windows"]) >= 1, d
+          for name in ("access.csv","elevation.png","slant_range.png"):
+              assert (p/name).is_file(), name
+          print("Ground 01 smoke verified:", len(d["windows"]), "window(s)")
+          PY
+      - name: Verify outputs and numerical invariants
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("results/orbit_01")
+          d = json.loads((p / "summary.json").read_text(encoding="utf-8"))
+          assert d["position_sample_count"] >= 100
+          assert d["relative_specific_energy_span"] < 1e-5
+          assert d["relative_angular_momentum_span"] < 1e-5
+          for filename in ("states.csv", "orbit_3d.png", "radial_height.png", "radial_height_deviation_m.png"):
+              assert (p / filename).exists(), filename
+          print("Basilisk orbit smoke OK", d["position_sample_count"], "samples")
+          PY
+      - name: Preserve single-KA mission dataflow evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mission-01-linux
+          path: |
+            results/mission_01/summary.json
+            results/mission_01/adcs_summary.json
+            results/mission_01/adcs_states.csv
+            results/mission_01/mission_summary.json
+            results/mission_01/mission_states.csv
+            results/mission_01/mission_dataflow.png
+            results/mission_01/run_manifest.json
+            results/mission_01/RESULTS_EXPLAINED.md
+            results/mission_01_slow/mission_summary.json
+            results/mission_01_slow/mission_states.csv
+            results/mission_01_slow/mission_dataflow.png
+            results/mission_01_slow/run_manifest.json
+          if-no-files-found: warn
+      - name: Preserve physical ADCS 01 numerical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adcs-01-linux
+          path: |
+            results/adcs_01/summary.json
+            results/adcs_01/adcs_summary.json
+            results/adcs_01/adcs_states.csv
+            results/adcs_01/adcs_pointing.png
+            results/adcs_01/adcs_torque.png
+            results/adcs_01/run_manifest.json
+            results/adcs_01/RESULTS_EXPLAINED.md
+            results/adcs_01_step_comparison.json
+            results/adcs_01_step05/adcs_summary.json
+            results/adcs_01_step025/adcs_summary.json
+            results/adcs_01_step05/run_manifest.json
+            results/adcs_01_step025/run_manifest.json
+          if-no-files-found: warn
+      - name: Preserve long-run Ground 01 numerical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ground-runtime-01-linux
+          path: |
+            results/ground_01_2h/summary.json
+            results/ground_01_2h/run_manifest.json
+            results/ground_01_2h/RESULTS_EXPLAINED.md
+            results/ground_01_2h/access.csv
+            results/ground_01_day1/summary.json
+            results/ground_01_day1/run_manifest.json
+            results/ground_01_day1/RESULTS_EXPLAINED.md
+            results/ground_01_day1/access.csv
+          if-no-files-found: warn
+      - name: Preserve numerical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: basilisk-orbit-01
+          path: results/orbit_01/
+          if-no-files-found: warn
+
+  basilisk-windows-unicode-path:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.13 on Windows
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install Basilisk on Windows
+        run: python -m pip install "bsk[all,examples]==2.12.2"
+      - name: Test orbital dynamics inside a Cyrillic-named folder
+        shell: pwsh
+        run: |
+          $folder = Join-Path $env:RUNNER_TEMP 'НИР'
+          New-Item -Path $folder -ItemType Directory -Force | Out-Null
+          Copy-Item -Path '.\experiments', '.\nirs_satellite' -Destination $folder -Recurse -Force
+          Push-Location $folder
+          try {
+            python -m experiments.orbit_01.run_orbit
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $report = Get-Content '.\results\orbit_01\summary.json' -Raw | ConvertFrom-Json
+            if ($report.position_sample_count -lt 100 -or $report.relative_specific_energy_span -ge 0.00001) {
+              throw 'Orbital dynamics verification failed'
+            }
+            python -m experiments.orbit_01.validate_orbit
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            python -m experiments.ground_01.run_ground
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $ground = Get-Content '.\\results\\ground_01\\summary.json' -Raw | ConvertFrom-Json
+            if (-not $ground.checks_passed) { throw 'Ground access numerical checks failed' }
+            Write-Output "Ground 01 Windows: $($ground.windows.Count) access window(s)"
+            python -m experiments.ground_01.run_ground --duration-hours 2 --output-name ground_01_2h
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $long = Get-Content '.\results\ground_01_2h\summary.json' -Raw | ConvertFrom-Json
+            $manifest = Get-Content '.\results\ground_01_2h\run_manifest.json' -Raw | ConvertFrom-Json
+            if ($long.samples -ne 721 -or $long.requested_duration_s -ne 7200 -or -not $long.checks_passed) {
+              throw 'Two-hour Ground 01 simulation did not match the requested horizon'
+            }
+            if ($manifest.inputs.ground_config.sha256.Length -ne 64) {
+              throw 'Missing input configuration provenance'
+            }
+            Write-Output "Two-hour Ground 01 Windows: $($long.samples) samples, manifest present"
+            python -m experiments.ground_01.run_ground --duration-days 1 --output-name ground_01_day1
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $day = Get-Content '.\results\ground_01_day1\summary.json' -Raw | ConvertFrom-Json
+            if ($day.samples -ne 8641 -or $day.last_sample_time_s -ne 86400 -or -not $day.checks_passed) {
+              throw '24-hour Ground 01 run failed'
+            }
+            Write-Output "24-hour Ground 01 Windows: $($day.samples) samples"
+            python -m experiments.payload_01.run_payload
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $payload = Get-Content '.\results\payload_01\summary.json' -Raw | ConvertFrom-Json
+            if ($payload.product_count -ne 1 -or $payload.total_data_bytes_generated -ne 1000000) {
+              throw 'Payload 01 data-generation validation failed'
+            }
+            Write-Output "Payload 01 Windows: $($payload.total_data_bytes_generated) bytes produced"
+            python -m experiments.adcs_01.run_adcs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $adcs = Get-Content '.\results\adcs_01\adcs_summary.json' -Raw | ConvertFrom-Json
+            $adcsGround = Get-Content '.\results\adcs_01\summary.json' -Raw | ConvertFrom-Json
+            $adcsManifest = Get-Content '.\results\adcs_01\run_manifest.json' -Raw | ConvertFrom-Json
+            if (-not $adcs.checks_passed -or -not $adcsGround.checks_passed -or
+                $adcs.samples -ne 1441 -or
+                $adcs.minimum_boresight_error_deg -ge $adcs.initial_boresight_error_deg -or
+                $adcs.max_commanded_torque_Nm -le 0) {
+              throw 'ADCS 01 attitude model validation failed'
+            }
+            if ($adcsManifest.inputs.adcs_config.sha256.Length -ne 64) {
+              throw 'ADCS 01 input origin not recorded'
+            }
+            Write-Output "ADCS 01 Windows: initial=$($adcs.initial_boresight_error_deg) min=$($adcs.minimum_boresight_error_deg) deg, ideal commanded torque=$($adcs.max_commanded_torque_Nm) Nm"
+            python -m experiments.mission_01.run_mission
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $mission = Get-Content '.\results\mission_01\mission_summary.json' -Raw | ConvertFrom-Json
+            $missionGround = Get-Content '.\results\mission_01\summary.json' -Raw | ConvertFrom-Json
+            if (-not $mission.checks_passed -or -not $missionGround.checks_passed -or
+                $mission.capture_count -ne 1 -or $mission.generated_bits -ne 8000000 -or
+                $mission.downlinked_bits -le 0 -or
+                -not $mission.fully_delivered_within_sampling_tolerance -or
+                $mission.capture_actual_boresight_error_deg -gt 5) {
+              throw 'Mission 01 single-satellite data cycle failed on Windows'
+            }
+            Write-Output "Mission 01 Windows: downlinked=$($mission.downlinked_bits), stored=$($mission.final_stored_bits)"
+            python -m experiments.ground_01.run_ground --viz
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $groundViz = Get-Content '.\results\ground_01\summary.json' -Raw | ConvertFrom-Json
+            if (-not $groundViz.checks_passed -or -not $groundViz.vizard.file_created) {
+              throw 'Ground 01 rotating Earth Vizard recording missing or geometry failed'
+            }
+            if (-not $groundViz.vizard.location_registered -or $groundViz.vizard.parent_body_name -ne 'earth') {
+              throw 'Ground marker is not linked to the actual Vizard Earth display body'
+            }
+            $vizFile = [string]$groundViz.vizard.output_file
+            if (-not (Test-Path $vizFile)) { throw 'Ground 01 Vizard file not found' }
+            if ((Get-Item $vizFile).Length -le 0) { throw 'Ground 01 Vizard file is empty' }
+            Write-Output "Ground 01 Vizard file present"
+            Write-Output "Windows Cyrillic directory: physical orbit OK"
+            python -m experiments.orbit_01.run_orbit --viz
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $report = Get-Content '.\results\orbit_01\summary.json' -Raw | ConvertFrom-Json
+            Write-Output "Vizard state: $($report.vizard_export); created=$($report.vizard_file_created)"
+            if ($report.vizard_export -like 'recording requested*' -and -not $report.vizard_file_created) {
+              throw 'Vizard recording was requested but not created'
+            }
+          } finally {
+            Pop-Location
+          }

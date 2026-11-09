@@ -3,3 +3,28 @@ __pycache__/
 .pytest_cache/
 .venv/
 .DS_Store
+
+# Generated physical-orbit experiments; reproduce from config.json
+/results/orbit_01/
+
+# Local diagnostic output from failed orbit runs
+orbit_error.txt
+
+# Variants of one orbit simulation and their generated reports
+/results/orbit_01_step10/
+/results/orbit_01_step05/
+/results/orbit_01_convergence.json
+
+# Generated data from ground-target simulation
+/results/ground_01/
+
+# All generated named long-running Ground/Payload experiments are local
+/results/ground_*/
+/results/payload_*/
+
+# Synthetic pointing telemetry and comparison runs
+/results/adcs_*/
+/results/adcs_01_step_comparison.json
+
+# Generated simulation results are not source code.
+/results/

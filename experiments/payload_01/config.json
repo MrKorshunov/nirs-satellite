@@ -1,0 +1,16 @@
+{
+  "scenario_id": "payload_01_one_synthetic_product",
+  "provenance": "SYNTHETIC TEST DATA, not a real imaging payload",
+  "name": "TARGET_01_IMAGE",
+  "bytes_per_product": 1000000,
+  "maximum_products_per_pass": 1,
+  "pointing_assumption": "IDEAL guidance: zero attitude and rate error, no actuator dynamics",
+  "imaging_duration_assumption": "one 10-second simulation tick; simpleInstrument rate scaled to produce exactly one product",
+  "what_is_not_modelled": [
+    "camera field of view",
+    "physical attitude control",
+    "spectral sensor / actual pixels",
+    "illumination or cloud screening",
+    "storage capacity or delivery of data"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "НИРС: окно запуска",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "nirs_satellite.launcher_gui",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "НИРС: физический спутник Basilisk",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "experiments.mission_01.run_mission",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "args": [
+        "--actuator", "rw",
+        "--power",
+        "--duration-hours", "0.2",
+        "--viz-mode", "file",
+        "--viz-step-s", "10",
+        "--output-name", "vscode_physical"
+      ]
+    },
+    {
+      "name": "НИРС: исследовательский сценарий",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "experiments.mission_02.run",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "args": [
+        "--duration-hours", "4",
+        "--step-s", "10",
+        "--output-name", "vscode_research"
+      ]
+    }
+  ]
+}

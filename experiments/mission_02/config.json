@@ -1,0 +1,149 @@
+{
+  "scenario_id": "mission_02_research_baseline",
+  "provenance": "SYNTHETIC research reference configuration; not an identified spacecraft or verified hardware",
+  "earth": {
+    "radius_m": 6378137,
+    "rotation_rate_rad_s": 0.00007292115,
+    "epoch": "synthetic_t0_lon0"
+  },
+  "spacecraft": {
+    "mass_kg": 10,
+    "inertia_kg_m2": 0.2,
+    "max_slew_rate_deg_s": 1,
+    "max_torque_nm": 0.01,
+    "rw_momentum_limit_nms": 0.05,
+    "settle_s": 2,
+    "max_off_nadir_deg": 45,
+    "storage_capacity_bytes": 4000000
+  },
+  "power": {
+    "battery_capacity_wh": 80,
+    "initial_wh": 65,
+    "reserve_wh": 5,
+    "solar_charge_w": 14,
+    "idle_w": 4,
+    "slew_w": 9,
+    "imaging_w": 13,
+    "transmit_w": 15,
+    "sun_direction_inertial": [
+      1,
+      0,
+      0
+    ]
+  },
+  "radio": {
+    "frequency_hz": 2200000000,
+    "tx_power_w": 2,
+    "tx_gain_dbi": 5,
+    "rx_gain_dbi": 24,
+    "system_noise_k": 450,
+    "required_ebno_db": 7,
+    "margin_db": 3,
+    "nominal_rate_bps": 160000,
+    "packet_bytes": 5000
+  },
+  "stations": [
+    {
+      "id": "GS_ALPHA",
+      "lat_deg": 12,
+      "lon_deg": 45,
+      "min_elevation_deg": 10
+    },
+    {
+      "id": "GS_BETA",
+      "lat_deg": 4,
+      "lon_deg": 85,
+      "min_elevation_deg": 10
+    }
+  ],
+  "tasks": [
+    {
+      "id": "AREA_A",
+      "lat_deg": 14,
+      "lon_deg": 43,
+      "release_s": 0,
+      "deadline_s": 4000,
+      "priority": 4,
+      "product_bytes": 500000,
+      "exposure_s": 20,
+      "min_elevation_deg": 10
+    },
+    {
+      "id": "AREA_B",
+      "lat_deg": 13,
+      "lon_deg": 42,
+      "release_s": 0,
+      "deadline_s": 2400,
+      "priority": 2,
+      "product_bytes": 300000,
+      "exposure_s": 20,
+      "min_elevation_deg": 10
+    },
+    {
+      "id": "AREA_C",
+      "lat_deg": 16,
+      "lon_deg": 45,
+      "release_s": 0,
+      "deadline_s": 5000,
+      "priority": 5,
+      "product_bytes": 450000,
+      "exposure_s": 20,
+      "min_elevation_deg": 10
+    },
+    {
+      "id": "AREA_D",
+      "lat_deg": 17,
+      "lon_deg": 46,
+      "release_s": 0,
+      "deadline_s": 7200,
+      "priority": 3,
+      "product_bytes": 700000,
+      "exposure_s": 20,
+      "min_elevation_deg": 10
+    },
+    {
+      "id": "AREA_E",
+      "lat_deg": 11,
+      "lon_deg": 40,
+      "release_s": 0,
+      "deadline_s": 3600,
+      "priority": 2,
+      "product_bytes": 250000,
+      "exposure_s": 20,
+      "min_elevation_deg": 10
+    },
+    {
+      "id": "AREA_F",
+      "lat_deg": 18,
+      "lon_deg": 48,
+      "release_s": 0,
+      "deadline_s": 8000,
+      "priority": 4,
+      "product_bytes": 500000,
+      "exposure_s": 20,
+      "min_elevation_deg": 10
+    },
+    {
+      "id": "AREA_G",
+      "lat_deg": 12,
+      "lon_deg": 46,
+      "release_s": 0,
+      "deadline_s": 10000,
+      "priority": 3,
+      "product_bytes": 550000,
+      "exposure_s": 20,
+      "min_elevation_deg": 10
+    },
+    {
+      "id": "AREA_H",
+      "lat_deg": 20,
+      "lon_deg": 50,
+      "release_s": 0,
+      "deadline_s": 14000,
+      "priority": 1,
+      "product_bytes": 400000,
+      "exposure_s": 20,
+      "min_elevation_deg": 10
+    }
+  ]
+}
