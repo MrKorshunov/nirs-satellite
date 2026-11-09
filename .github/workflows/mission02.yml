@@ -140,3 +140,37 @@ jobs:
           name: adcs02-physical-wheels
           path: results/adcs02_rw_acceptance/
           if-no-files-found: warn
+
+  basilisk-power-dynamics:
+    needs: resource-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install Basilisk 2.12.2
+        run: python -m pip install "bsk[all,examples]==2.12.2"
+      - name: Simulate physical Basilisk battery, solar panel and eclipse
+        run: python -m experiments.ground_01.run_ground --duration-hours 0.3 --step-s 10 --power --output-name power01_physical_acceptance
+      - name: Validate power state and energy bounds
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("results/power01_physical_acceptance")
+          s = json.loads((p/"power_summary.json").read_text())
+          assert s["checks_passed"]
+          assert s["max_panel_power_w"] >= 0
+          assert 0 <= s["minimum_battery_wh"] <= s["battery_capacity_wh"]
+          assert (p/"power_states.csv").is_file()
+          assert (p/"power_states.png").is_file()
+          print("BASILISK POWER ACCEPTED:",s["final_battery_wh"],"Wh; max solar",s["max_panel_power_w"],"W")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: power01-physical-battery
+          path: results/power01_physical_acceptance/
+          if-no-files-found: warn
