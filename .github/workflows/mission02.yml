@@ -223,3 +223,17 @@ jobs:
           name: basilisk-rw-power-mission
           path: results/mission01_rw_power_datachain/
           if-no-files-found: warn
+
+  desktop-launcher-windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate GUI scripts, launch plans and Tkinter availability
+        run: |
+          python -m unittest tests.test_launcher_core -v
+          python -c "import tkinter; import nirs_satellite.launcher_gui as ui; assert callable(ui.main); print('Tkinter launcher import OK')"
+          python -c "from pathlib import Path; assert all(Path(p).exists() for p in ('START_NIRS.cmd','SETUP_NIRS.cmd','CHECK_NIRS.cmd','docs/WINDOWS_GUI_GUIDE.md')); print('Windows launch files present')"
