@@ -1,6 +1,8 @@
 """Parameter sweep on ONE frozen Basilisk trajectory (no redundant orbit reruns)."""
 from __future__ import annotations
 
+from nirs_satellite.input_paths import input_path
+
 import argparse
 import copy
 import csv
@@ -27,7 +29,7 @@ def main():
         description="Mission02 independent sweep: fixed Basilisk orbit, varied resources")
     parser.add_argument("--track", type=Path, required=True)
     parser.add_argument("--config", type=Path,
-                        default=ROOT / "experiments" / "mission_02" / "config.json")
+                        default=input_path("observation_tasks"))
     parser.add_argument("--radio-bps", default="20000,80000,160000",
                         help="Comma-separated nominal radio rates, bits/s")
     parser.add_argument("--battery-wh", default="15,40,65",

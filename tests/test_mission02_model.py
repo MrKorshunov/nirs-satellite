@@ -1,6 +1,8 @@
 """Standard-library tests of Mission 02 operations and conservation."""
 from __future__ import annotations
 
+from nirs_satellite.input_paths import input_path
+
 import copy
 import json
 from pathlib import Path
@@ -11,7 +13,7 @@ from experiments.mission_02.model import (
     in_parallel_shadow, rate_from_friis,
 )
 
-BASE = Path(__file__).resolve().parents[1] / "experiments" / "mission_02" / "config.json"
+BASE = input_path("observation_tasks")
 
 
 def fixture():

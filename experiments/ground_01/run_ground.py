@@ -9,6 +9,8 @@ From repository root:
 """
 from __future__ import annotations
 
+from nirs_satellite.input_paths import input_path
+
 import argparse
 import csv
 import json
@@ -36,7 +38,7 @@ from experiments.ground_01.run_reporting import write_run_explanation
 from nirs_satellite.orbit.analytical import orbital_period_s
 
 ROOT = Path(__file__).resolve().parents[2]
-CONF = Path(__file__).with_name("config.json")
+CONF = input_path("earth_target")
 
 def draw_plots(times: np.ndarray, elevation_deg: np.ndarray, range_km: np.ndarray,
                access: np.ndarray, limit_deg: float, output: Path) -> None:
@@ -191,8 +193,8 @@ def main() -> None:
             "minimum_elevation_deg": float(tcfg["minimum_elevation_deg"]),
         },
         "input_sources": {
-            "orbit": "experiments/orbit_01/config.json (synthetic)",
-            "earth_and_target": "experiments/ground_01/config.json (synthetic)",
+            "orbit": "inputs/physical/orbit.json (synthetic)",
+            "earth_and_target": "inputs/physical/earth_target.json (synthetic)",
             "time_overrides": "CLI values replace horizon, step or Vizard cadence ONLY",
         },
         "accuracy_note": "Two-body circular orbit + synthetic Earth rotation, no UTC",
@@ -210,8 +212,8 @@ def main() -> None:
         preview["input_preview"]["adcs_feedback_K_Nm"] = adcs_preview["feedback_gain_K_Nm"]
         preview["input_preview"]["adcs_rate_gain_P_Nm_s"] = adcs_preview["rate_gain_P_Nm_s"]
         preview["input_sources"]["adcs"] = (
-            "experiments/adcs_02/config.json (synthetic RW)" if args.actuator == "rw"
-            else "experiments/adcs_01/config.json (synthetic ideal torque)"
+            "inputs/physical/adcs_wheels.json (synthetic RW)" if args.actuator == "rw"
+            else "inputs/physical/adcs_ideal_legacy.json (synthetic ideal torque)"
         )
         preview["accuracy_note"] += (
             "; Basilisk reaction wheels with synthetic torque/speed limits and ideal nav"
@@ -231,12 +233,12 @@ def main() -> None:
         preview["mission_profile"] = args.mission_profile
         preview["accuracy_note"] += "; fixed rate ideal radio and bit queue, no packet errors or receiver"
     if args.payload:
-        payload_path = ROOT / "experiments" / "payload_01" / "config.json"
+        payload_path = input_path("payload_demo_legacy")
         payload_plan = json.loads(payload_path.read_text(encoding="utf-8"))
         preview["input_preview"]["synthetic_payload_bytes_per_product"] = payload_plan["bytes_per_product"]
-        preview["input_sources"]["payload"] = "experiments/payload_01/config.json (synthetic)"
+        preview["input_sources"]["payload"] = "inputs/physical/payload_demo_legacy.json (synthetic)"
     if args.power:
-        power_path = ROOT / "experiments" / "power_01" / "config.json"
+        power_path = input_path("power")
         preview["input_preview"]["power_config"] = json.loads(power_path.read_text(encoding="utf-8"))
         preview["input_sources"]["power"] = str(power_path)
         preview["accuracy_note"] += "; Basilisk solar panel, conical eclipse and battery WITHOUT brownout gate"
@@ -252,7 +254,7 @@ def main() -> None:
         f"elevation limit={preview['input_preview']['minimum_elevation_deg']:g} deg",
         flush=True,
     )
-    print("Origin: orbit_01/config.json + ground_01/config.json; no real UTC epoch", flush=True)
+    print("Origin: inputs/physical/orbit.json + earth_target.json; no real UTC epoch", flush=True)
     step = plan.step_s
     output = ROOT / "results" / plan.output_name
     output.mkdir(parents=True, exist_ok=True)

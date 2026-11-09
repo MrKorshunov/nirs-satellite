@@ -6,6 +6,8 @@ not a computed pointing result.
 """
 from __future__ import annotations
 
+from nirs_satellite.input_paths import input_path
+
 import json
 import hashlib
 import math
@@ -16,7 +18,7 @@ from Basilisk.fswAlgorithms import simpleInstrumentController
 from Basilisk.simulation import simpleInstrument
 
 
-CONFIG = Path(__file__).with_name("config.json")
+CONFIG = input_path("payload_demo_legacy")
 
 
 def attach(sim, task: str, access_out_msg, step_s: float):

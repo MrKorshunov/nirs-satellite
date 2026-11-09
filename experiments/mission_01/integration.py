@@ -9,6 +9,8 @@ spacecraft. Perfect actuator/nav and fixed-rate link are still assumptions.
 """
 from __future__ import annotations
 
+from nirs_satellite.input_paths import input_path
+
 from dataclasses import dataclass
 import hashlib
 import json
@@ -24,8 +26,8 @@ from Basilisk.simulation import (
 )
 
 
-CONFIG = Path(__file__).with_name("config.json")
-CONFIG_SLOW = Path(__file__).with_name("config_slow_link.json")
+CONFIG = input_path("camera_storage_radio")
+CONFIG_SLOW = input_path("camera_storage_radio_slow")
 CONFIG_BY_PROFILE = {"nominal": CONFIG, "slow_link": CONFIG_SLOW}
 
 

@@ -1,7 +1,7 @@
 {
   "scenario_id": "ground_01_rotating_earth",
   "provenance": "SYNTHETIC EDUCATIONAL SCENARIO, not a time-tagged real Earth observation",
-  "orbit_config_path": "../orbit_01/config.json",
+  "orbit_config_path": "orbit.json",
   "earth": {
     "model": "rotating sphere",
     "rotation_rate_rad_s": 0.00007292115,

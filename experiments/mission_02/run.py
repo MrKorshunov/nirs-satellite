@@ -5,6 +5,8 @@ then executes resource-limited mission operations on the resulting state track.
 """
 from __future__ import annotations
 
+from nirs_satellite.input_paths import input_path
+
 import argparse
 import copy
 import csv
@@ -18,7 +20,7 @@ import sys
 from experiments.mission_02.model import load_basilisk_track, simulate, validate
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG = Path(__file__).with_name("config.json")
+DEFAULT_CONFIG = input_path("observation_tasks")
 POLICIES = ("fifo", "edf", "priority")
 
 
