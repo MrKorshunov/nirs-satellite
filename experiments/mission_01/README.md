@@ -59,8 +59,8 @@ Invoke-Item .\results\mission_01_slow\mission_dataflow.png
 
 | Величина | Номинально | Замедленный канал | Происхождение |
 |---|---:|---:|---|
-| Орбита | круговая, 500 км, 45° | та же | `orbit_01/config.json` |
-| Наземная цель | 14°N, 43°E, доступ от 10° | та же | `ground_01/config.json` |
+| Орбита | круговая, 500 км, 45° | та же | `inputs/physical/orbit.json` |
+| Наземная цель | 14°N, 43°E, доступ от 10° | та же | `inputs/physical/earth_target.json` |
 | Отдельная станция | 12°N, 45°E, доступ от 10° | та же | `mission_01/config*.json` |
 | Объём условного продукта | 1 000 000 байт | тот же | `capture.product_bytes` |
 | Максимум продуктов | 1 на прогон | 1 | `capture.maximum_products_per_run` |
