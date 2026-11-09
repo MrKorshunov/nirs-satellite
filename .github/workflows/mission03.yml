@@ -49,7 +49,7 @@ jobs:
       - name: Install Basilisk 2.12.2
         run: python -m pip install "bsk[all,examples]==2.12.2"
       - name: Execute physical two-target camera, wheel, power, storage, radio scenario
-        run: python -m experiments.mission_03.run --duration-hours 0.2 --viz-mode off --require-two-captures --output-name mission03_linux_acceptance
+        run: python -m experiments.mission_03.run --duration-hours 0.2 --viz-mode file --viz-step-s 10 --require-two-captures --output-name mission03_linux_acceptance
       - name: Verify continuous states, two distinct captures and actual power conditions
         run: |
           python - <<'PY'
@@ -65,6 +65,7 @@ jobs:
           assert abs(s["conservation_error_bits"])<160000
           assert (p/"mission03_states.csv").is_file()
           assert (p/"mission03_dataflow.png").is_file()
+          assert s["vizard_created"]
           assert (p/"power_summary.json").is_file()
           print("PHYSICAL MISSION03 PASSED: 2 products, actual RW, battery, storage, radio")
           PY
