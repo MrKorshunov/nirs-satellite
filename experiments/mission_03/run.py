@@ -154,6 +154,11 @@ def _draw_vizard(sim, process, task, sc, grav_earth, data, targets, earth_radius
         viz, toBodyName=targets[0]["id"],
         lineColor=[255, 0, 255, 255],
     )
+    # Fixed lines to BOTH markers avoid mutating native Vizard internals mid-run.
+    vizSupport.createTargetLine(
+        viz, toBodyName=targets[1]["id"],
+        lineColor=[255, 160, 30, 255],
+    )
     viz.settings.showLocationLabels = 1
     viz.settings.showLocationCones = -1
     viz.settings.showLocationCommLines = -1
@@ -431,95 +436,28 @@ def main():
                                   args.output_name,float(args.viz_step_s))
     print(f"MISSION 03 physical dynamics: {horizon_s:.1f}s at {step}s; "
           f"two targets; battery gate every {control_step:g}s",flush=True)
+    # Python SysModel is scheduled AFTER battery, storage and radio modules.
+    # It can inspect actual simulated states and command the NEXT dynamics
+    # update. Crucially: ExecuteSimulation is called EXACTLY ONCE, which is
+    # required for stable Windows/Linux Vizard file recording.
+    from experiments.mission_03.director import PhysicalMissionDirector
+    director=PhysicalMissionDirector(
+        cfg=cfg,data=data,target=target,power=power,
+        product_bits=8*int(mission_cfg["capture"]["product_bytes"]),
+        nominal_att_tol=mission_cfg["capture"]["maximum_attitude_mrp_error"],
+        nominal_rate_tol=mission_cfg["capture"]["maximum_rate_error_rad_s"],
+        nominal_radio_bps=mission_cfg["downlink"]["rate_bits_per_s"],
+    )
+    sim.AddModelToTask(task,director,ModelPriority=74)
     sim.InitializeSimulation()
-    print('MISSION03: Basilisk initialized, entering segmented dynamics',flush=True)
-    events=[{"t_s":0.0,"event":"target_assigned","task":first["id"]}]
-    phase=0
-    switch_t=None
-    current_energy=float(power_cfg["battery_initial_wh"])
-    allowed=True
-    granted_segments=[]
-    observations=0
-    last_sample=0
-    t=0.0
-    old_armed=None
-    old_tx=None
-    while t < horizon_s - 1e-8:
-        duration=min(control_step,horizon_s-t)
-        # Read the integrated battery energy from the previous simulation
-        # segment (not a fictitious independent battery state).
-        desired=permitted(
-            current_energy,reserve_wh=float(cfg["reserve_wh"]),
-            guard_wh=float(cfg["reserve_guard_wh"]),
-            hysteresis_wh=float(cfg["battery_reenable_hysteresis_wh"]),
-            previously_permitted=allowed)
-        if desired!=allowed:
-            events.append({"t_s":round(t,6),"event":"power_enabled" if desired else "power_safe_mode",
-                           "battery_wh":round(current_energy,6)})
-        allowed=desired
-        waiting=phase<2
-        camera_on=allowed and waiting
-        backlogged=(last_sample>0 and float(data.storage_rec.storageLevel[-1])>=
-                    8*int(mission_cfg["downlink"]["packet_bytes"]))
-        contact=(last_sample>0 and bool(data.station_access_rec.hasAccess[-1]))
-        radio_on=allowed and backlogged and contact
-        data.controller_model.attErrTolerance=(
-            float(mission_cfg["capture"]["maximum_attitude_mrp_error"])
-            if camera_on else -1.0)
-        data.controller_model.rateErrTolerance=(
-            float(mission_cfg["capture"]["maximum_rate_error_rad_s"])
-            if camera_on else -1.0)
-        data.transmitter_model.nodeBaudRate=(
-            -float(mission_cfg["downlink"]["rate_bits_per_s"]) if radio_on else 0.)
-        power.imaging_sink.powerStatus=1 if camera_on else 0
-        power.transmitter_sink.powerStatus=1 if radio_on else 0
-        granted_segments.append(allowed)
-        if camera_on!=old_armed:
-            events.append({"t_s":round(t,6),"event":"camera_armed" if camera_on else "camera_off"})
-            old_armed=camera_on
-        if radio_on!=old_tx:
-            events.append({"t_s":round(t,6),"event":"radio_on" if radio_on else "radio_off"})
-            old_tx=radio_on
-        end=t+duration
-        if t < 15 or 75 <= t <= 105:
-            print(f'MISSION03 segment t={t:g} -> {end:g}, phase={phase}, camera={camera_on}, radio={radio_on}',flush=True)
-        sim.ConfigureStopTime(macros.sec2nano(end))
-        sim.ExecuteSimulation()
-        rate=np.asarray(data.instrument_data_rec.baudRate,dtype=float)
-        ts=np.asarray(data.instrument_data_rec.times(),dtype=float)*1e-9
-        hit=np.flatnonzero(rate[last_sample:]>0) + last_sample
-        if len(hit):
-            if len(hit)!=1 or phase>=2:
-                raise AssertionError(f"Unexpected extra Basilisk exposure in phase {phase}")
-            time=float(ts[hit[0]])
-            task_cfg=cfg["tasks"][phase]
-            events.append({"t_s":time,"event":"captured","task":task_cfg["id"],
-                           "produced_bits":8*mission_cfg["capture"]["product_bytes"]})
-            observations+=1
-            if phase==0:
-                # This is the documented Basilisk pattern: change GroundLocation
-                # and reset the one-shot instrument controller. No reinit of
-                # spacecraft, attitude, wheels, battery, memory or transmitter.
-                second=cfg["tasks"][1]
-                print(f'MISSION03: retarget from {first["id"]} to {second["id"]} at t={end:g}',flush=True)
-                _site(second,target)
-                data.instrument_model.nodeDataName=second["id"]
-                data.controller_model.imaged=0
-                switch_t=end
-                phase=1
-                events.append({"t_s":round(end,6),"event":"retarget",
-                               "from":first["id"],"to":second["id"]})
-                if viz is not None:
-                    vizSupport.targetLineList[0].toBodyName=second["id"]
-                    vizSupport.targetLineList[0].lineColor=vizSupport.toRGBA255("orange")
-                    print('MISSION03: updating Vizard target line',flush=True)
-                    vizSupport.updateTargetLineList(viz)
-                    print('MISSION03: Vizard target line updated',flush=True)
-            elif phase==1:
-                phase=2
-        last_sample=len(rate)
-        current_energy=float(power.battery_rec.storageLevel[-1])/3600
-        t=end
+    print("MISSION03: Basilisk started: one continuous ExecuteSimulation",flush=True)
+    sim.ConfigureStopTime(macros.sec2nano(horizon_s))
+    sim.ExecuteSimulation()
+    print("MISSION03: physical propagation finished; checking evidence",flush=True)
+    events=director.events
+    switch_t=director.switch_t
+    granted_segments=director.granted_segments
+    observations=sum(x["event"]=="captured" for x in events)
     source_hashes={
         str(path.relative_to(ROOT)):checksum for path,checksum in (
             (args.config.resolve(),sha),(input_path("orbit"),orbit_sha),
