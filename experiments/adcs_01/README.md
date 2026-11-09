@@ -65,7 +65,7 @@ explorer "$env:LOCALAPPDATA\NIRS_Satellite\viz"
 | `RESULTS_EXPLAINED.md` | Пояснения на русском, откуда взяты числа и что они значат |
 | `access.csv` | Проверенная геометрия орбиты и положения наземной цели |
 
-Сценарий берёт начальные параметры КА из `experiments/orbit_01/config.json`, вращение Земли и координаты цели из `experiments/ground_01/config.json`, а **новые ADCS-параметры** — из `experiments/adcs_01/config.json`. Все числа в ADCS конфигурации пока **синтетические**, не паспортные.
+Сценарий берёт начальные параметры КА из `inputs/physical/orbit.json`, вращение Земли и координаты цели из `inputs/physical/earth_target.json`, а **новые ADCS-параметры** — из `inputs/physical/adcs_ideal_legacy.json`. Все числа в ADCS конфигурации пока **синтетические**, не паспортные.
 
 ### Контроль правильности
 

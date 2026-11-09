@@ -8,6 +8,8 @@ Launch from repository root:
 """
 from __future__ import annotations
 
+from nirs_satellite.input_paths import input_path
+
 import argparse
 import csv
 import json
@@ -38,7 +40,7 @@ from nirs_satellite.orbit.analytical import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CONFIG_PATH = Path(__file__).with_name("config.json")
+CONFIG_PATH = input_path("orbit")
 
 def _plot_orbit(position_m: np.ndarray, earth_radius_m: float, output: Path) -> None:
     fig = plt.figure(figsize=(8, 7))

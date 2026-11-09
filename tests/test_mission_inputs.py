@@ -4,9 +4,11 @@ import json
 from pathlib import Path
 import unittest
 
+from nirs_satellite.input_paths import input_path
+
 from experiments.mission_01.parameters import validate_config
 
-BASE = Path(__file__).resolve().parents[1] / "experiments" / "mission_01" / "config.json"
+BASE = input_path("camera_storage_radio")
 
 
 class MissionInputTests(unittest.TestCase):

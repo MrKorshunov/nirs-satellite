@@ -7,6 +7,8 @@ actuator: NO reaction wheels, torque clipping, sensor noise, or real camera.
 """
 from __future__ import annotations
 
+from nirs_satellite.input_paths import input_path
+
 from dataclasses import dataclass
 import hashlib
 import json
@@ -18,7 +20,7 @@ from Basilisk.fswAlgorithms import locationPointing, mrpFeedback
 from Basilisk.simulation import extForceTorque, simpleNav
 
 
-CONFIG = Path(__file__).with_name("config.json")
+CONFIG = input_path("adcs_ideal_legacy")
 
 
 @dataclass

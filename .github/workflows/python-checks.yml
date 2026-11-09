@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Check Python syntax
-        run: python -m compileall -q nirs_satellite experiments tests main.py explain.py
+        run: python -m compileall -q nirs_satellite experiments tests archive
       - name: Run independent tests without external scientific packages
         run: python -m unittest discover -s tests -v
 
@@ -136,7 +136,7 @@ jobs:
           assert normal["final_stored_bits"] < slow["final_stored_bits"]
           assert abs(slow["data_conservation_error_bits"]) < 0.01, slow
           assert slow["delivery_fraction"] < 1
-          assert manifest["inputs"]["mission_config"]["path"].endswith("config_slow_link.json")
+          assert manifest["inputs"]["mission_config"]["path"].endswith("camera_storage_radio_slow.json")
           assert manifest["inputs"]["mission_config"]["values"]["downlink"]["rate_bits_per_s"] == 10000
           print("Radio sensitivity comparison: nominal fraction", normal["delivery_fraction"],
                 "slow fraction", slow["delivery_fraction"])
@@ -346,7 +346,7 @@ jobs:
         run: |
           $folder = Join-Path $env:RUNNER_TEMP 'НИР'
           New-Item -Path $folder -ItemType Directory -Force | Out-Null
-          Copy-Item -Path '.\experiments', '.\nirs_satellite' -Destination $folder -Recurse -Force
+          Copy-Item -Path '.\experiments', '.\nirs_satellite', '.\inputs' -Destination $folder -Recurse -Force
           Push-Location $folder
           try {
             python -m experiments.orbit_01.run_orbit

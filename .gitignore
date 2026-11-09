@@ -28,3 +28,8 @@ orbit_error.txt
 
 # Generated simulation results are not source code.
 /results/
+
+# Local backups created by the desktop input editor
+/inputs/**/*.json.bak
+/inputs/**/*.json.tmp
+/inputs/**/.nirs_edited_*

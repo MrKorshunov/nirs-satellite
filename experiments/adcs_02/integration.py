@@ -7,6 +7,8 @@ Still assumes ideal navigation; torque/speed limits are SYNTHETIC.
 """
 from __future__ import annotations
 
+from nirs_satellite.input_paths import input_path
+
 from dataclasses import dataclass
 import hashlib
 import json
@@ -19,7 +21,7 @@ from Basilisk.simulation import reactionWheelStateEffector, simpleNav
 from Basilisk.utilities import simIncludeRW
 
 
-CONFIG = Path(__file__).with_name("config.json")
+CONFIG = input_path("adcs_wheels")
 
 
 @dataclass

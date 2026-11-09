@@ -3,8 +3,8 @@ import csv
 import json
 import sys
 from pathlib import Path
-from nirs_satellite.model import Contact, Scenario, Task
-from nirs_satellite.engine import simulate
+from archive.v01.model import Contact, Scenario, Task
+from archive.v01.engine import simulate
 
 
 def load_scenario(path: Path) -> Scenario:
@@ -27,8 +27,8 @@ def export_csv(path: Path, records: list[dict]) -> None:
 
 
 def main() -> None:
-    source = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent / "scenarios/demo.json"
-    output = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(__file__).parent / "results"
+    source = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent / "demo.json"
+    output = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(__file__).resolve().parents[2] / "results" / "legacy_v01"
     output.mkdir(parents=True, exist_ok=True)
     scenario = load_scenario(source)
     summaries = []

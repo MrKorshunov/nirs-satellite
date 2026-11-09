@@ -1,6 +1,6 @@
 import unittest
-from nirs_satellite.model import Scenario, Task, Contact
-from nirs_satellite.engine import simulate
+from archive.v01.model import Scenario, Task, Contact
+from archive.v01.engine import simulate
 
 
 def task(name, start=0, end=10, size=100, deadline=1000, priority=1):

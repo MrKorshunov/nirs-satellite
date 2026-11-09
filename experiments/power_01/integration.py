@@ -7,6 +7,8 @@ No battery-to-device automatic inhibit is claimed.
 """
 from __future__ import annotations
 
+from nirs_satellite.input_paths import input_path
+
 from dataclasses import dataclass
 from pathlib import Path
 import hashlib
@@ -16,7 +18,7 @@ import math
 from Basilisk.architecture import messaging
 from Basilisk.simulation import eclipse, simpleBattery, simplePowerSink, simpleSolarPanel
 
-CONFIG = Path(__file__).with_name("config.json")
+CONFIG = input_path("power")
 
 
 @dataclass

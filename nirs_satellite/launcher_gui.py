@@ -96,7 +96,7 @@ class NirsWindow:
         self.btn_stop.pack(side="left", padx=(0, 10))
         ttk.Button(actions, text="Открыть результаты",
                    command=self._open_results).pack(side="left", padx=(0, 10))
-        ttk.Button(actions, text="Настройки JSON",
+        ttk.Button(actions, text="Все исходные данные",
                    command=self._open_config).pack(side="left", padx=(0, 10))
         ttk.Button(actions, text="Папка Vizard",
                    command=self._open_vizard).pack(side="left")
@@ -263,13 +263,8 @@ class NirsWindow:
             reveal(path)
 
     def _open_config(self):
-        path = (ROOT / "experiments" /
-                ("mission_02" if self._code() == PROFILE_RESEARCH
-                 else "mission_01") / "config.json")
-        if path.is_file():
-            reveal(path)
-        else:
-            messagebox.showerror("Файл не найден", str(path))
+        from nirs_satellite.input_editor import open_input_editor
+        open_input_editor(self.window)
 
     def _open_vizard(self):
         base = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "NIRS_Satellite" / "viz"
