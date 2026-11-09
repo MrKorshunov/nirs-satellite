@@ -172,6 +172,45 @@ def _draw_vizard(sim, process, task, sc, grav_earth, data, targets, earth_radius
     return bin_path, viz
 
 
+
+def _draw_vizard_markers(sim, process, task, sc, earth, data, targets,
+                         earth_radius, output_name, cadence):
+    """Stable target/ground-station Vizard profile without native HUD panels."""
+    bin_path,viz=_draw_vizard(sim,process,task,sc,earth,data,targets,
+                             earth_radius,output_name,cadence,minimal=True)
+    parent=str(earth.displayName)
+    if parent not in [str(b.bodyName) for b in viz.gravBodyInformation]:
+        raise RuntimeError("Vizard planet display body is not actual modeled Earth")
+    for index,site in enumerate(targets):
+        r=_ground_r_fixed(site,earth_radius)
+        vizSupport.addLocation(
+            viz,stationName=site["id"],parentBodyName=parent,
+            r_GP_P=r,gHat_P=r/np.linalg.norm(r),
+            label="OBSERVATION TARGET "+str(index+1),markerScale=15.0,
+            color=[255,0,255,255] if index==0 else [255,160,30,255],
+            isHidden=False,fieldOfView=math.radians(160),range=2_000_000.0)
+    st=data.config["downlink"]["ground_station"]
+    p=_ground_r_fixed({"lat_deg":st["latitude_deg"],
+                       "lon_deg":st["longitude_deg"],
+                       "altitude_m":st["altitude_m"]},earth_radius)
+    vizSupport.addLocation(
+        viz,stationName=str(st["name"]),parentBodyName=parent,
+        r_GP_P=p,gHat_P=p/np.linalg.norm(p),
+        label="GROUND STATION",markerScale=10.0,
+        color=[0,220,100,255],isHidden=False,
+        fieldOfView=math.radians(160),range=2_000_000.0)
+    # Static lines to both sites: physical targeting changes in recorded
+    # spacecraft attitude; do not mutate native Vizard objects during run.
+    vizSupport.createTargetLine(viz,toBodyName=targets[0]["id"],
+                                lineColor=[255,0,255,255])
+    vizSupport.createTargetLine(viz,toBodyName=targets[1]["id"],
+                                lineColor=[255,160,30,255])
+    viz.settings.showLocationLabels=1
+    viz.settings.showLocationCones=-1
+    viz.settings.showLocationCommLines=-1
+    return bin_path,viz
+
+
 def _plot(out, t, battery, memory, error, panel, switch_t):
     fig, axes = plt.subplots(3, 1, figsize=(11, 9), sharex=True)
     axes[0].plot(t/60, error, label="Actual boresight error (deg)")
@@ -439,9 +478,9 @@ def main():
     bin_path=None
     viz=None
     if args.viz_mode=="file":
-        bin_path,viz=_draw_vizard(sim,process,task,sc,earth,data,cfg["tasks"],
-                                  float(orbit["reference_radius_m"]),
-                                  args.output_name,float(args.viz_step_s),minimal=args.viz_minimal)
+        bin_path,viz=_draw_vizard_markers(sim,process,task,sc,earth,data,cfg["tasks"],
+                                           float(orbit["reference_radius_m"]),
+                                           args.output_name,float(args.viz_step_s))
     print(f"MISSION 03 physical dynamics: {horizon_s:.1f}s at {step}s; "
           f"two targets; battery gate every {control_step:g}s",flush=True)
     # Python SysModel is scheduled AFTER battery, storage and radio modules.
