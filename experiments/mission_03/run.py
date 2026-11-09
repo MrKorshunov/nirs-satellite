@@ -473,7 +473,7 @@ def main():
             (input_path("power"),power_sha),(input_path("camera_storage_radio"),mission_sha))
     }
     result=_write_outputs(
-        out,cfg,source_hashes,t,sc_rec,ground_rec,access_rec,
+        out,cfg,source_hashes,horizon_s,sc_rec,ground_rec,access_rec,
         adcs,data,power,events,switch_t,granted_segments,observations,
         bin_path,step,float(mission_cfg["downlink"]["rate_bits_per_s"]),
         float(cfg["reserve_wh"]))
