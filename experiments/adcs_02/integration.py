@@ -111,7 +111,6 @@ def attach(
             u_max=float(rw_cfg["max_torque_nm"]),
             Omega_max=float(rw_cfg["max_speed_rpm"]),
             Omega=float(rw_cfg["initial_speed_rpm"]),
-            maxMomentum=float(rw_cfg["max_momentum_nms"]),
             useMaxTorque=True,
             useMinTorque=False,
             RWModel=messaging.BalancedWheels,
