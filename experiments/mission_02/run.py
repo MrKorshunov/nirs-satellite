@@ -126,6 +126,10 @@ def run(args):
                "sample_step_s"])
     (output / "comparison.json").write_text(
         json.dumps(summaries, ensure_ascii=False, indent=2), encoding="utf-8")
+    from experiments.mission_02.plots import render_summary
+    rendered = render_summary(output)
+    if rendered:
+        print("Created figures:", ", ".join(rendered))
     print("Mission 02 finished. Open:", output)
     for summary in summaries:
         print(f"  {summary['policy']:8s} weighted_on_time={summary['weighted_on_time_fraction']:.4f}"
