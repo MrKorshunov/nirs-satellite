@@ -10,10 +10,10 @@ set "RUN_NAME=satellite_full_%RANDOM%%RANDOM%"
 echo.
 echo NIRS: BASILISK PHYSICAL SINGLE SPACECRAFT DIAGNOSTIC
 echo Real Basilisk reaction wheels + solar panel + eclipse + battery.
-echo One synthetic image product, storage and downlink.
-echo Synthetic hardware; no battery shutdown or ground receiver/ACK.
+echo Two physically switched imaging targets, storage and downlink.
+echo Synthetic hardware; energy-reserve gate; no physical ground receiver/ACK.
 echo.
-%PY% -m experiments.mission_01.run_mission --actuator rw --power --viz-mode file --viz-step-s 10 --output-name %RUN_NAME%
+%PY% -m experiments.mission_03.run --duration-hours 0.2 --viz-mode file --viz-step-s 10 --require-two-captures --output-name %RUN_NAME%
 if errorlevel 1 (
   echo.
   echo ERROR: physical Basilisk scenario failed. Review logs.
