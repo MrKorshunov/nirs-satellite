@@ -199,7 +199,7 @@ def _write_outputs(
     stored = np.asarray(data.storage_rec.storageLevel, dtype=float)
     battery = np.asarray(power.battery_rec.storageLevel, dtype=float)/3600
     panel = np.asarray(power.panel_rec.netPower, dtype=float)
-    rws = np.asarray(adcs.rw_recorder.wheelSpeeds, dtype=float)
+    rws = np.asarray(adcs.rw_recorder.wheelSpeeds, dtype=float)[:, :3]  # Basilisk payload pads to 36 RW slots
     guid_err = np.asarray(adcs.guidance_recorder.sigma_BR, dtype=float)
     guid_rate = np.asarray(adcs.guidance_recorder.omega_BR_B, dtype=float)
     n=len(t)
