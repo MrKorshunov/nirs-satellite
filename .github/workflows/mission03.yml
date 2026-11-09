@@ -76,7 +76,7 @@ jobs:
           p=Path("inputs/physical/mission_execution.json")
           c=json.loads(p.read_text())
           c["reserve_wh"]=64.95
-          c["reserve_guard_wh"]=0.15
+          c["reserve_guard_wh"]=5.0  # deliberately exceeds possible 12-min charging gain
           c["battery_reenable_hysteresis_wh"]=0.5
           Path("inputs/physical/mission_execution_low.json").write_text(
               json.dumps(c,indent=2),encoding="utf-8")
