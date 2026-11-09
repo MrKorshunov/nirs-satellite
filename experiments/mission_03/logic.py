@@ -39,8 +39,8 @@ def validate(cfg: dict, *, step_s: float, product_name: str,
     hysteresis = float(cfg["battery_reenable_hysteresis_wh"])
     if not 0 < reserve < initial_energy_wh or guard <= 0 or hysteresis <= 0:
         raise ValueError("Reserve/guard/hysteresis must be positive and below initial charge")
-    if reserve + guard + hysteresis >= initial_energy_wh:
-        raise ValueError("Battery starts below safe-mode recovery threshold")
+    # A deliberately low initial charge is a valid SAFE-MODE experiment:
+    # operations must be disabled rather than rejecting the configuration.
     if all(abs(float(targets[0][k])-float(targets[1][k])) < 1e-9 for k in ("lat_deg", "lon_deg")):
         raise ValueError("Two separate target positions are necessary for actual retargeting")
     for task in targets:
