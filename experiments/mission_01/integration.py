@@ -45,6 +45,11 @@ class MissionComponents:
     capture_command_msg: object
     transmitter_data_msg: object
     storage_status_msg: object
+    controller_model: object
+    instrument_model: object
+    transmitter_model: object
+    storage_model: object
+    station_model: object
 
 
 def attach(sim, task: str, spacecraft, planet_msg, earth_radius_m: float,
@@ -130,4 +135,9 @@ def attach(sim, task: str, spacecraft, planet_msg, earth_radius_m: float,
         capture_command_msg=controller.deviceCmdOutMsg,
         transmitter_data_msg=transmitter.nodeDataOutMsg,
         storage_status_msg=storage.storageUnitDataOutMsg,
+        controller_model=controller,
+        instrument_model=instrument,
+        transmitter_model=transmitter,
+        storage_model=storage,
+        station_model=station,
     )

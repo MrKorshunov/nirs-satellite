@@ -18,7 +18,7 @@ PROFILE_RESEARCH = "research"
 PROFILE_TEST = "tests"
 
 PROFILES = {
-    PROFILE_PHYSICAL: "Физическая модель: 1 съёмка, Basilisk + RW + питание + связь",
+    PROFILE_PHYSICAL: "Физический КА: 2 цели, RW + батарея + съёмка + связь",
     PROFILE_RESEARCH: "Проверка планирования: несколько заданий, FIFO / EDF / Priority",
     PROFILE_TEST: "Автоматические проверки Python (без визуализации)",
 }
@@ -68,13 +68,12 @@ def build_plan(
     if profile == PROFILE_PHYSICAL:
         if hours < 0.2 or hours > 12:
             raise ValueError("Физическая модель: от 0.2 до 12 часов")
-        # The one-product Mission 01 test assumes the original capture/contact
-        # geometry. A very short run may not contain all the downlink window.
+        # One continuous physical Basilisk simulation for both target observations.
         argv = (
-            python_executable, "-m", "experiments.mission_01.run_mission",
-            "--actuator", "rw", "--power",
+            python_executable, "-m", "experiments.mission_03.run",
             "--duration-hours", str(hours),
             "--viz-mode", "file" if record_vizard else "off",
+            "--require-two-captures",
             "--output-name", name,
         )
         if record_vizard:

@@ -1,0 +1,43 @@
+{
+  "scenario_id": "mission_03_physical_two_target_switching",
+  "provenance": "SYNTHETIC physical end-to-end baseline, no actual satellite flight characteristics",
+  "control_step_s": 5,
+  "default_duration_hours": 0.2,
+  "reserve_wh": 5,
+  "reserve_guard_wh": 0.15,
+  "battery_reenable_hysteresis_wh": 0.5,
+  "tasks": [
+    {
+      "id": "TARGET_01_IMAGE",
+      "lat_deg": 14,
+      "lon_deg": 43,
+      "altitude_m": 0,
+      "minimum_elevation_deg": 10,
+      "maximum_range_m": -1,
+      "priority": 2,
+      "deadline_s": 720
+    },
+    {
+      "id": "TARGET_02_IMAGE",
+      "lat_deg": 14.7,
+      "lon_deg": 43.35,
+      "altitude_m": 0,
+      "minimum_elevation_deg": 10,
+      "maximum_range_m": -1,
+      "priority": 1,
+      "deadline_s": 720
+    }
+  ],
+  "model_limitations": [
+    "Two sequential imaging tasks are executed by the same Basilisk spacecraft and real RW model",
+    "Physical controller gets a new target after first capture via GroundLocation.specifyLocation and controller.imaged reset",
+    "Power gate is applied inside a continuously propagated Basilisk task via Python SysModel, sampling actual battery every control_step_s; this is not continuous hardware low-voltage protection",
+    "Power sink modes are commanded inside Basilisk task via SimplePowerSink.powerStatus; idle bus power remains active",
+    "Fixed nominal downlink bitrate, no packet errors and no physical receiver or ground ACK",
+    "Only the two declared target products are created, no actual photo pixels",
+    "Target and ground station belong to synthetic rotating spherical Earth and non-UTC epoch",
+    "Nominal mission hardware parameters are referenced from inputs/physical/*.json; no duplicated hardware table",
+    "Scheduler optimized policy is intentionally absent pending separate research work",
+    "Task priority and deadline fields are reserved for future research scheduling and are not enforced in the current fixed two-target demonstration"
+  ]
+}

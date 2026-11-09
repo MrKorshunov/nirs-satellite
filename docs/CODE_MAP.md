@@ -15,8 +15,9 @@
 | `experiments/orbit_01/` | Базовая орбита, численная/аналитическая проверка | Двухтельная модель не равна реальной орбите |
 | `experiments/ground_01/run_ground.py` | Главный интегратор: собирает Basilisk, геометрию, ADCS, приборы, Power 01 и Vizard | Не редактировать без регрессионных тестов |
 | `experiments/adcs_02/` | Реакционные маховики Basilisk и диагностика | Параметры синтетические, нет магнитной разгрузки |
-| `experiments/power_01/` | Eclipse, SolarPanel, Battery, PowerSink Basilisk | Заряд не управляет выключением приборов |
-| `experiments/mission_01/` | Один сквозной снимок с хранением и передачей | Не планировщик множества заданий |
+| `experiments/power_01/` | Eclipse, SolarPanel, Battery, PowerSink Basilisk | В Mission03 заряд управляет дискретным допуском; в Mission01 только диагностика |
+| `experiments/mission_01/` | Физический эталон: одна съёмка | Контрольный старый режим |
+| `experiments/mission_03/` | **Главный физический режим:** две разные цели, реальные RW, заряд, память, передача и Vizard | Двухзадачный исполнитель, не оптимизатор |
 | `experiments/mission_02/` | Несколько задач, упрощённые ресурсные ограничения, FIFO / EDF / Priority и sweep | Не полное физическое выполнение расписания |
 | `experiments/adcs_01/`, `experiments/payload_01/` | Проверенные ранние изолированные тесты; оставлены для регрессии | Не основные рабочие режимы |
 | `tests/` | Математические, интерфейсные и входные тесты | Не заменяют натурную валидацию |
@@ -25,7 +26,8 @@
 
 ## Точки входа для разработчика
 
-- Физический один КА: `python -m experiments.mission_01.run_mission --actuator rw --power`.
+- Основной физический КА (две цели): `python -m experiments.mission_03.run --require-two-captures`.
+- Старый однокадровый эталон: `python -m experiments.mission_01.run_mission --actuator rw --power`.
 - Многозадачная проверка: `python -m experiments.mission_02.run`.
 - Эксперименты по сетке параметров: `python -m experiments.mission_02.sweep --track ...`.
 - Отладочный орбитальный модуль: `python -m experiments.orbit_01.run_orbit`.
