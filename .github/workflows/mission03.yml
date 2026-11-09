@@ -68,11 +68,39 @@ jobs:
           assert (p/"power_summary.json").is_file()
           print("PHYSICAL MISSION03 PASSED: 2 products, actual RW, battery, storage, radio")
           PY
+      - name: Check safe-mode interlock against actual Basilisk battery
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("inputs/physical/mission_execution.json")
+          c=json.loads(p.read_text())
+          c["reserve_wh"]=64.95
+          c["reserve_guard_wh"]=0.15
+          c["battery_reenable_hysteresis_wh"]=0.5
+          Path("inputs/physical/mission_execution_low.json").write_text(
+              json.dumps(c,indent=2),encoding="utf-8")
+          PY
+          python -m experiments.mission_03.run --config inputs/physical/mission_execution_low.json --duration-hours 0.2 --viz-mode off --output-name mission03_safe_mode_acceptance
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("results/mission03_safe_mode_acceptance")
+          s=json.loads((p/"mission03_summary.json").read_text())
+          events=json.loads((p/"mission03_events.json").read_text())
+          assert s["power_disabled_segments"] > 0, s
+          assert sum(t["capture_count"] for t in s["tasks"]) == 0, s
+          assert s["generated_bits"] == 0, s
+          assert any(x["event"] == "power_safe_mode" for x in events), events
+          print("BASILISK LOW-POWER SAFE MODE: instrument blocked, physical battery observed")
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: mission03-linux-acceptance
-          path: results/mission03_linux_acceptance/
+          path: |
+            results/mission03_linux_acceptance/
+            results/mission03_safe_mode_acceptance/
           if-no-files-found: warn
 
   physically-actuated-two-targets-windows:
