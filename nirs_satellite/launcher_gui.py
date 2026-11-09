@@ -108,7 +108,7 @@ class NirsWindow:
         self.log.pack(fill="both", expand=True)
         self.log.configure(state="disabled")
         ttk.Label(self.window, text=(
-            "Проверенная физическая цепочка рассчитана на 1 условный снимок. "
+            "Физический режим переключается между двумя целями без перезапуска Basilisk. "
             "Режим нескольких задач использует упрощённые ресурсные ограничения."
         ), wraplength=840).pack(anchor="w", pady=(12, 2))
         ttk.Label(self.window, text="Записанные результаты находятся в папке results/ проекта.",
