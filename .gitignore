@@ -25,3 +25,6 @@ orbit_error.txt
 # Synthetic pointing telemetry and comparison runs
 /results/adcs_*/
 /results/adcs_01_step_comparison.json
+
+# Generated simulation results are not source code.
+/results/
