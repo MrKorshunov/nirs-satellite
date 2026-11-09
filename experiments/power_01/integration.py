@@ -31,6 +31,9 @@ class PowerComponents:
     battery_rec: object
     imaging_rec: object
     transmitter_rec: object
+    battery_model: object
+    imaging_sink: object
+    transmitter_sink: object
 
 
 def _valid(cfg):
@@ -123,4 +126,5 @@ def attach(sim, task, spacecraft, earth_planet_msg,
           transmitter.nodePowerOutMsg.recorder())
     for rec in recs:
         sim.AddModelToTask(task,rec,ModelPriority=0)
-    return PowerComponents(config,hashlib.sha256(cfg_bytes).hexdigest(),*recs)
+    return PowerComponents(config,hashlib.sha256(cfg_bytes).hexdigest(),*recs,
+                           battery,instrument,transmitter)
