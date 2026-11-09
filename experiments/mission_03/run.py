@@ -432,6 +432,7 @@ def main():
     print(f"MISSION 03 physical dynamics: {horizon_s:.1f}s at {step}s; "
           f"two targets; battery gate every {control_step:g}s",flush=True)
     sim.InitializeSimulation()
+    print('MISSION03: Basilisk initialized, entering segmented dynamics',flush=True)
     events=[{"t_s":0.0,"event":"target_assigned","task":first["id"]}]
     phase=0
     switch_t=None
@@ -480,6 +481,8 @@ def main():
             events.append({"t_s":round(t,6),"event":"radio_on" if radio_on else "radio_off"})
             old_tx=radio_on
         end=t+duration
+        if t < 15 or 75 <= t <= 105:
+            print(f'MISSION03 segment t={t:g} -> {end:g}, phase={phase}, camera={camera_on}, radio={radio_on}',flush=True)
         sim.ConfigureStopTime(macros.sec2nano(end))
         sim.ExecuteSimulation()
         rate=np.asarray(data.instrument_data_rec.baudRate,dtype=float)
@@ -498,6 +501,7 @@ def main():
                 # and reset the one-shot instrument controller. No reinit of
                 # spacecraft, attitude, wheels, battery, memory or transmitter.
                 second=cfg["tasks"][1]
+                print(f'MISSION03: retarget from {first["id"]} to {second["id"]} at t={end:g}',flush=True)
                 _site(second,target)
                 data.instrument_model.nodeDataName=second["id"]
                 data.controller_model.imaged=0
@@ -508,7 +512,9 @@ def main():
                 if viz is not None:
                     vizSupport.targetLineList[0].toBodyName=second["id"]
                     vizSupport.targetLineList[0].lineColor=vizSupport.toRGBA255("orange")
+                    print('MISSION03: updating Vizard target line',flush=True)
                     vizSupport.updateTargetLineList(viz)
+                    print('MISSION03: Vizard target line updated',flush=True)
             elif phase==1:
                 phase=2
         last_sample=len(rate)
