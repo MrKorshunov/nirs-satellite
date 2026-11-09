@@ -105,3 +105,38 @@ jobs:
           name: mission02-windows-acceptance
           path: results/mission02_windows_acceptance/
           if-no-files-found: warn
+
+  basilisk-reaction-wheel-dynamics:
+    needs: resource-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install Basilisk 2.12.2
+        run: python -m pip install "bsk[all,examples]==2.12.2"
+      - name: Simulate bounded physical RW dynamics
+        run: python -m experiments.ground_01.run_ground --adcs --actuator rw --duration-hours 0.2 --step-s 0.5 --output-name adcs02_rw_acceptance
+      - name: Validate wheel speed saturation and actual pointing response
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          folder = Path("results/adcs02_rw_acceptance")
+          result = json.loads((folder/"adcs_summary.json").read_text())
+          summary = json.loads((folder/"summary.json").read_text())
+          assert result["actuation"] == "physical_basilisk_reactionWheelStateEffector"
+          assert result["actual_max_abs_rw_speed_rpm"] <= result["rw_speed_limit_rpm"] + 3
+          assert result["minimum_boresight_error_deg"] < result["initial_boresight_error_deg"]
+          assert summary["checks_passed"]
+          assert (folder/"adcs02_reaction_wheels.csv").is_file()
+          print("BASILISK PHYSICAL RW ACCEPTED: max RPM", result["actual_max_abs_rw_speed_rpm"])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: adcs02-physical-wheels
+          path: results/adcs02_rw_acceptance/
+          if-no-files-found: warn
