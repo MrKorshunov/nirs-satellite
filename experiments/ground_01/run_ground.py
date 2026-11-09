@@ -196,7 +196,10 @@ def main() -> None:
         "accuracy_note": "Two-body circular orbit + synthetic Earth rotation, no UTC",
     }
     if args.adcs or args.mission:
-        from experiments.adcs_01.integration import CONFIG as ADCS_CONFIG, validate_adcs_config
+        if args.actuator == "rw":
+            from experiments.adcs_02.integration import CONFIG as ADCS_CONFIG, validate_adcs_config
+        else:
+            from experiments.adcs_01.integration import CONFIG as ADCS_CONFIG, validate_adcs_config
         adcs_preview = json.loads(ADCS_CONFIG.read_text(encoding="utf-8"))
         validate_adcs_config(adcs_preview, plan.step_s)
         preview["input_preview"]["adcs_initial_sigma_BN_mrp"] = adcs_preview["initial_sigma_BN_mrp"]
@@ -204,7 +207,10 @@ def main() -> None:
         preview["input_preview"]["adcs_boresight_B"] = adcs_preview["instrument_boresight_B"]
         preview["input_preview"]["adcs_feedback_K_Nm"] = adcs_preview["feedback_gain_K_Nm"]
         preview["input_preview"]["adcs_rate_gain_P_Nm_s"] = adcs_preview["rate_gain_P_Nm_s"]
-        preview["input_sources"]["adcs"] = "experiments/adcs_01/config.json (synthetic)"
+        preview["input_sources"]["adcs"] = (
+            "experiments/adcs_02/config.json (synthetic RW)" if args.actuator == "rw"
+            else "experiments/adcs_01/config.json (synthetic ideal torque)"
+        )
         preview["accuracy_note"] += (
             "; Basilisk reaction wheels with synthetic torque/speed limits and ideal nav"
             if args.actuator == "rw"
