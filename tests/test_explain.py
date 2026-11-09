@@ -2,17 +2,17 @@
 import tempfile
 from pathlib import Path
 import unittest
-from explain import report
+from archive.v01.explain import report
 
 
 class ReportTests(unittest.TestCase):
     def test_report_contains_input_and_both_policies(self):
-        source = Path(__file__).resolve().parent.parent / "scenarios" / "demo.json"
+        source = Path(__file__).resolve().parents[1] / "archive" / "v01" / "demo.json"
         with tempfile.TemporaryDirectory() as folder:
             destination = Path(folder) / "report.html"
             report(source, destination)
             body = destination.read_text(encoding="utf-8")
-        self.assertIn("scenarios/demo.json", body.replace("\\", "/"))
+        self.assertIn("demo.json", body.replace("\\", "/"))
         self.assertIn("180.00 МБ", body)
         self.assertIn("A_fields", body)
         self.assertIn("B_water", body)
