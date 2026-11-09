@@ -220,6 +220,8 @@ def simulate(states, cfg, policy):
     current_pointing = unit(tuple(-x for x in states[0].pos_m))
     eclipse_count = 0
     no_power_steps = 0
+    link_credit_bits = 0.0
+    current_station_id = None
     max_off_nadir = float(cfg["spacecraft"]["max_off_nadir_deg"])
     sun = unit(tuple(cfg["power"]["sun_direction_inertial"]))
     for index, state in enumerate(states[:-1]):
@@ -283,12 +285,16 @@ def simulate(states, cfg, policy):
                 if finish_idx >= len(states) or states[finish_idx].t_s > candidate["deadline_s"]:
                     continue
                 # An already-known sampled window must cover both operation boundaries.
-                if not all(_geo_access(states[k], candidate, cfg,
-                                       candidate["min_elevation_deg"])[0] and
-                           off_nadir_deg(states[k].pos_m,
-                               _geo_access(states[k], candidate, cfg,
-                                           candidate["min_elevation_deg"])[1]) <= max_off_nadir
-                           for k in (index + slew_steps, finish_idx)):
+                if not all(
+                    _geo_access(states[k], candidate, cfg,
+                                candidate["min_elevation_deg"])[0]
+                    and off_nadir_deg(
+                        states[k].pos_m,
+                        _geo_access(states[k], candidate, cfg,
+                                    candidate["min_elevation_deg"])[1]
+                    ) <= max_off_nadir
+                    for k in range(index + slew_steps, finish_idx + 1)
+                ):
                     continue
                 required_wh = (
                     (slew_steps * (cfg["power"]["idle_w"] + cfg["power"]["slew_w"]) +
@@ -326,9 +332,16 @@ def simulate(states, cfg, policy):
                                      cfg["power"]["transmit_w"]) * dt / 3600
                 if projected >= reserve:
                     activity = "transmit"
-                    available_packets = int((effective_rate * dt) // packet)
+                    # Accumulate fractional data-link capacity across CONTIGUOUS
+                    # contact samples. Without this, a packet larger than
+                    # rate*dt would never be sent, even during a long pass.
+                    if source != current_station_id:
+                        link_credit_bits = 0.0
+                    current_station_id = source
+                    link_credit_bits += effective_rate * dt
+                    available_packets = int((link_credit_bits + 1e-8) // packet)
                     if available_packets:
-                        # Partial last packets are intentionally disabled, as in Basilisk demo.
+                        # Partial last packets are intentionally disabled.
                         budget = available_packets * packet
                         while products and budget >= packet:
                             chosen = _choice([tasks[p["id"]] for p in products], policy)
@@ -341,6 +354,7 @@ def simulate(states, cfg, policy):
                             budget -= transfer
                             stored -= transfer
                             delivered_bits += transfer
+                            link_credit_bits -= transfer
                             if product["remaining_bits"] <= 0:
                                 completed.add(product["id"])
                                 event = "delivered_on_time" if t + dt <= chosen["deadline_s"] else "delivered_late"
@@ -349,6 +363,10 @@ def simulate(states, cfg, policy):
                                                "latency_s": t + dt - product["capture_s"]})
                                 products.remove(product)
 
+        if activity != "transmit" or not products:
+            # A partial physical packet is not stored across radio sessions.
+            link_credit_bits = 0.0
+            current_station_id = None
         load = cfg["power"]["idle_w"]
         if activity == "slew":
             load += cfg["power"]["slew_w"]
