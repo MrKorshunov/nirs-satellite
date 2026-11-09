@@ -1,7 +1,8 @@
 """Attach documented Basilisk eclipse + solar-panel + battery models.
 
 Uses fixed synthetic Sun state, actual spacecraft pose and Basilisk Earth state.
-Loads for camera/transmitter may subscribe to existing DeviceStatus messages.
+Power loads are enabled continuously in mission mode as an upper-bound.
+DeviceCmd and DeviceStatus types are incompatible; no unsafe conversion.
 No battery-to-device automatic inhibit is claimed.
 """
 from __future__ import annotations
@@ -55,7 +56,7 @@ def _valid(cfg):
 
 
 def attach(sim, task, spacecraft, earth_planet_msg,
-           instrument_status_msg=None, transmitter_status_msg=None):
+           *, mission_loads_always_on: bool = False):
     cfg_bytes=CONFIG.read_bytes()
     config=json.loads(cfg_bytes)
     _valid(config)
@@ -91,19 +92,17 @@ def attach(sim, task, spacecraft, earth_planet_msg,
     instrument=simplePowerSink.SimplePowerSink()
     instrument.ModelTag="POWER01_ImagerPower"
     instrument.nodePowerOut=-float(config["imaging_load_w"])
-    if instrument_status_msg is None:
-        instrument.powerStatus=0
-    else:
-        instrument.nodeStatusInMsg.subscribeTo(instrument_status_msg)
+    # DeviceCmdMsg != DeviceStatusMsg in Basilisk; no unsafe message cast.
+    # Conservative mission-level upper-bound: imaging load energized
+    # during entire mission run (not the exact instrument on/off timeline).
+    instrument.powerStatus = 1 if mission_loads_always_on else 0
     sim.AddModelToTask(task,instrument,ModelPriority=77)
 
     transmitter=simplePowerSink.SimplePowerSink()
     transmitter.ModelTag="POWER01_TransmitterPower"
     transmitter.nodePowerOut=-float(config["transmitter_load_w"])
-    if transmitter_status_msg is None:
-        transmitter.powerStatus=0
-    else:
-        transmitter.nodeStatusInMsg.subscribeTo(transmitter_status_msg)
+    # Conservative mission-level upper-bound radio consumption.
+    transmitter.powerStatus = 1 if mission_loads_always_on else 0
     sim.AddModelToTask(task,transmitter,ModelPriority=76)
 
     battery=simpleBattery.SimpleBattery()
