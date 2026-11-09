@@ -59,8 +59,8 @@ def analyse_run(*, times, components, output: Path):
         "limitations":[
             "Basilisk dynamic first-order power model with FIXED SYNTHETIC Sun direction",
             "Fixed body-mounted panels and constant base load",
-            "An imager load follows one synthetic instrument command if Mission01 is enabled",
-            "Transmitter consumption is not connected to packet/message activity and is disabled",
+            "When Mission01 is enabled, imaging and radio loads are ON for the full run (conservative upper bound)",
+            "Imager/radio load profiles are not yet driven by actual device activity; no false DeviceCmd-to-DeviceStatus conversion",
             "Battery low-charge does NOT yet suppress imaging or radio operations",
             "No thermal/power bus, deployment, degradation or voltage losses"
         ],
