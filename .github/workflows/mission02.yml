@@ -57,6 +57,19 @@ jobs:
               assert len(rows) >= 100
           print("MISSION02 ACCEPTED: 3 policies, constrained balances, Basilisk trajectory")
           PY
+      - name: Parameter-sweep smoke on the exact same orbit
+        run: |
+          python -m experiments.mission_02.sweep --track results/mission02_acceptance_basilisk_geometry/access.csv --radio-bps 20000,160000 --battery-wh 15,65 --storage-bytes 1000000,4000000 --output-name mission02_sweep_ci
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("results/mission02_sweep_ci")
+          result = json.loads((p/"sweep.json").read_text())
+          assert len(result) == 24
+          assert all(abs(x["balance_error_bits"]) < 0.1 for x in result)
+          assert all(0 <= x["on_time_fraction"] <= 1 for x in result)
+          print("MISSION02 SWEEP OK: 24 distinct condition-policy combinations")
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -64,4 +77,5 @@ jobs:
           path: |
             results/mission02_acceptance/
             results/mission02_acceptance_basilisk_geometry/
+            results/mission02_sweep_ci/
           if-no-files-found: warn
