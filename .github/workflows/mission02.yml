@@ -55,6 +55,9 @@ jobs:
               with (out/f'{s["policy"]}_states.csv').open() as f:
                   rows = list(csv.DictReader(f))
               assert len(rows) >= 100
+          assert (out/"policy_comparison.png").is_file()
+          assert (out/"memory_over_time.png").is_file()
+          assert (out/"battery_over_time.png").is_file()
           print("MISSION02 ACCEPTED: 3 policies, constrained balances, Basilisk trajectory")
           PY
       - name: Parameter-sweep smoke on the exact same orbit
