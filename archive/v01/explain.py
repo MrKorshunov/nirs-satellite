@@ -10,8 +10,8 @@ from html import escape
 from pathlib import Path
 import sys
 
-from main import load_scenario
-from nirs_satellite.engine import simulate
+from archive.v01.main import load_scenario
+from archive.v01.engine import simulate
 
 
 def fmt_mb(num: float) -> str:
@@ -124,6 +124,6 @@ h1{{font-size:28px}}h2{{margin-top:0}}h3{{margin-top:24px}}section,.note{{backgr
 
 if __name__ == '__main__':
     root = Path(__file__).resolve().parent
-    source = Path(sys.argv[1]) if len(sys.argv) > 1 else root / 'scenarios' / 'demo.json'
-    target = Path(sys.argv[2]) if len(sys.argv) > 2 else root / 'results' / 'report.html'
+    source = Path(sys.argv[1]) if len(sys.argv) > 1 else root / 'demo.json'
+    target = Path(sys.argv[2]) if len(sys.argv) > 2 else root.parents[1] / 'results' / 'legacy_v01' / 'report.html'
     report(source, target)
