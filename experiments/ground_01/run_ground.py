@@ -87,6 +87,8 @@ def main() -> None:
         "--adcs", action="store_true",
         help="Track rotating-Earth target with simulated rigid-body attitude and ideal torque",
     )
+    parser.add_argument("--power", action="store_true",
+                        help="Attach Basilisk eclipse, body-fixed solar panel and simpleBattery diagnostic")
     parser.add_argument(
         "--actuator", choices=["ideal", "rw"], default="ideal",
         help="ADCS actuation: ideal external torque (baseline) or physical Basilisk reaction wheels",
@@ -233,6 +235,11 @@ def main() -> None:
         payload_plan = json.loads(payload_path.read_text(encoding="utf-8"))
         preview["input_preview"]["synthetic_payload_bytes_per_product"] = payload_plan["bytes_per_product"]
         preview["input_sources"]["payload"] = "experiments/payload_01/config.json (synthetic)"
+    if args.power:
+        power_path = ROOT / "experiments" / "power_01" / "config.json"
+        preview["input_preview"]["power_config"] = json.loads(power_path.read_text(encoding="utf-8"))
+        preview["input_sources"]["power"] = str(power_path)
+        preview["accuracy_note"] += "; Basilisk solar panel, conical eclipse and battery WITHOUT brownout gate"
     if args.plan_only:
         print(json.dumps(preview, ensure_ascii=False, indent=2))
         return
@@ -343,6 +350,17 @@ def main() -> None:
             sim, task, sat, eph.planetOutMsgs[0], radius,
             target.accessOutMsgs[0], adcs_components.guidance_msg, step,
             profile=args.mission_profile
+        )
+
+    power_components = None
+    if args.power:
+        from experiments.power_01.integration import attach as attach_power
+        power_components = attach_power(
+            sim, task, sat, eph.planetOutMsgs[0],
+            instrument_status_msg=(
+                mission_components.capture_command_msg
+                if mission_components is not None else None
+            ),
         )
 
     payload_cfg = None
@@ -671,6 +689,18 @@ def main() -> None:
             f"remaining {mission_evidence['final_stored_bits']/8e6:.3f} MB",
             flush=True,
         )
+    power_evidence = None
+    if power_components is not None:
+        from experiments.power_01.analysis import analyse_run as analyse_power
+        power_evidence = analyse_power(
+            times=times,
+            components=power_components,
+            output=output,
+        )
+        print("POWER 01: final battery"
+              f" {power_evidence['final_battery_wh']:.3f} Wh,"
+              f" generated {power_evidence['solar_energy_wh']:.3f} Wh",flush=True)
+
     payload_evidence = None
     if args.payload:
         from experiments.payload_01.accounting import validate_generation, save_evidence
@@ -739,6 +769,7 @@ def main() -> None:
         "adcs": adcs_evidence,
         "mission": mission_evidence,
         "actuator": args.actuator if adcs_components is not None else None,
+        "power": power_evidence,
         "vizard": {
             "requested": plan.viz_mode != "off",
             "mode": plan.viz_mode,
@@ -792,6 +823,11 @@ def main() -> None:
             from experiments.adcs_01.integration import CONFIG as ADCS_CONFIG
         input_files["adcs_config"] = (
             ADCS_CONFIG, adcs_components.config, adcs_components.config_sha256
+        )
+    if power_components is not None:
+        from experiments.power_01.integration import CONFIG as POWER_CONFIG
+        input_files["power_config"] = (
+            POWER_CONFIG, power_components.config, power_components.config_sha256
         )
     if mission_components is not None:
         input_files["mission_config"] = (
