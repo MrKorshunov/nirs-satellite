@@ -18,6 +18,7 @@ FILES: dict[str, tuple[str, str]] = {
     "power": ("physical/power.json", "Аккумулятор, панель, условное Солнце и потребители"),
     "camera_storage_radio": ("physical/camera_storage_radio.json", "Один снимок, память, канал и станция"),
     "camera_storage_radio_slow": ("physical/camera_storage_radio_slow.json", "Контрольный медленный радиоканал"),
+    "multitarget_demo": ("physical/multitarget_demo.json", "Физическое перенаведение: две последовательные цели (Mission 03)"),
     "observation_tasks": ("research/observation_tasks.json", "Многозадачные цели, станции и условные ресурсы"),
     "adcs_ideal_legacy": ("physical/adcs_ideal_legacy.json", "Исторический ADCS без маховиков — только диагностика"),
     "payload_demo_legacy": ("physical/payload_demo_legacy.json", "Историческая проверка прибора"),
