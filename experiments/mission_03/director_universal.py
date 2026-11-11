@@ -38,7 +38,8 @@ class UniversalMissionDirector(sysModel.SysModel):
         self.nominal_rate_tol=float(nominal_rate_tol)
         self.nominal_radio_bps=float(nominal_radio_bps)
         self.default_product_bytes=int(default_product_bytes)
-        self.events=[{"t_s":0.,"event":"task_assigned","task":self.tasks[0]["id"]}]
+        self.events=([{"t_s":0.,"event":"task_assigned","task":self.tasks[0]["id"]}]
+                     if self.tasks else [{"t_s":0.,"event":"idle_program"}])
         self.capture_count={v["id"]:0 for v in self.tasks}
         self.capture_times={v["id"]:[] for v in self.tasks}
         self.task_status={v["id"]:"pending" for v in self.tasks}
