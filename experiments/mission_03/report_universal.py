@@ -169,7 +169,7 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
     with (output/"mission03_strip_footprints.csv").open("w",newline="",encoding="utf-8") as f:
         columns=["t_s","utc_iso8601","task","lat_deg","lon_deg","altitude_m",
                  "region_signed_distance_m","swath_width_m","along_track_m",
-                 "approx_area_m2","data_bits"]
+                 "instant_footprint_overlap_m2","approx_area_m2","data_bits"]
         writer=csv.DictWriter(f,fieldnames=columns)
         writer.writeheader()
         for line in director.lines:
