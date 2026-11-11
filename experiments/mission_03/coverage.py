@@ -71,6 +71,51 @@ def _footprint_at(t:float,lat:float,lon:float,width_m:float,
     return line.buffer(float(width_m)/2,cap_style=2,join_style=2)
 
 
+
+class LiveStripGeometry:
+    """Same WGS84 local equal-area swath-cell definition as polygon_coverage.
+
+    The director executes AFTER each physics tick and issues commands for
+    t + step, so camera permission must test the *predicted next cell*,
+    not a circle around the current subpoint. A circular range gate can
+    fire 12 small lines while the whole rectangular strip is still
+    upstream of the region and the actual overlap remains zero.
+    """
+
+    def __init__(self,regions:dict):
+        self._regions={}
+        for region_id,reg in regions.items():
+            project,_,polygon=_region_projection(reg["polygon_lat_lon_deg"])
+            self._regions[region_id]=(project,polygon)
+
+    def cell_overlap_m2(self,region_id:str,previous_fix,now_fix,
+                        width_m:float,*,predict_next:bool)->float:
+        """Return intersection area for ONE actual or predicted step cell.
+
+        previous_fix/now_fix: (lat_deg, lon_deg). Without two physical fixes
+        the ground-track direction is unknown, and image permission is denied.
+        """
+        from shapely.geometry import LineString
+        if previous_fix is None or now_fix is None:
+            return 0.0
+        if not math.isfinite(width_m) or width_m<=0:
+            raise ValueError("Bad physical strip width")
+        project,polygon=self._regions[region_id]
+        px,py=project.transform(float(previous_fix[1]),float(previous_fix[0]))
+        nx,ny=project.transform(float(now_fix[1]),float(now_fix[0]))
+        dx=nx-px;dy=ny-py
+        length=math.hypot(dx,dy)
+        if not math.isfinite(length) or length<1e-6:
+            return 0.0
+        cx=nx+dx if predict_next else nx
+        cy=ny+dy if predict_next else ny
+        segment=LineString([(cx-dx/2,cy-dy/2),(cx+dx/2,cy+dy/2)])
+        footprint=segment.buffer(width_m/2,cap_style=2,join_style=2)
+        if not polygon.intersects(footprint):
+            return 0.0
+        return float(polygon.intersection(footprint).area)
+
+
 def polygon_coverage(regions:dict, tasks:list, lines:list, ground_track:list,
                      sample_dt_s:float)->dict:
     """Union clipped real-generated strip cell footprints by territory.
