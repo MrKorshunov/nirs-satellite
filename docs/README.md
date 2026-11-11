@@ -8,7 +8,8 @@
 4. [Что реализовано и чего не хватает](WHAT_IS_MISSING.md)
 5. [Сравнение с примером Basilisk](COMPARISON_BASILISK.md)
 6. [Новый физический исполнитель двух целей Mission03](../experiments/mission_03/README.md)
-7. [Техническое руководство по запуску на Windows](WINDOWS_GUI_GUIDE.md)
+7. [Универсальная физическая модель и полосная съёмка](UNIVERSAL_EXECUTOR_AND_STRIP.md)
+8. [Техническое руководство по запуску на Windows](WINDOWS_GUI_GUIDE.md)
 
 **Для воспроизводимости и научного отчёта:**
 

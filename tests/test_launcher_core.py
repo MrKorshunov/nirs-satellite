@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from nirs_satellite.launcher_core import (
-    build_plan, PROFILE_PHYSICAL, PROFILE_RESEARCH, PROFILE_TEST,
+    build_plan, PROFILE_PHYSICAL, PROFILE_STRIP, PROFILE_RESEARCH, PROFILE_TEST,
 )
 
 
@@ -37,6 +37,16 @@ class LauncherPlans(unittest.TestCase):
         self.assertIn("file", plan.argv)
         self.assertEqual(plan.result_dir, self.root / "results" / "sample_123")
         self.assertEqual(plan.vizard_file.name, "sample_123.bin")
+
+    def test_physical_swath_mode_has_real_basilisk_executor_and_regions(self):
+        plan = self.make(PROFILE_STRIP, hours=0.2)
+        self.assertIn("experiments.mission_03.run",plan.argv)
+        self.assertIn("--require-all-complete",plan.argv)
+        self.assertIn("--config",plan.argv)
+        self.assertIn("--regions",plan.argv)
+        self.assertTrue(any("mission_mixed_demo.json" in x for x in plan.argv))
+        self.assertTrue(any("territories.json" in x for x in plan.argv))
+        self.assertEqual(plan.vizard_file.name,"sample_123.bin")
 
     def test_research_uses_multiple_tasks_and_no_visualizer(self):
         plan = self.make(PROFILE_RESEARCH)

@@ -20,6 +20,8 @@ FILES: dict[str, tuple[str, str]] = {
     "camera_storage_radio_slow": ("physical/camera_storage_radio_slow.json", "Контрольный медленный радиоканал"),
     "observation_tasks": ("research/observation_tasks.json", "Многозадачные цели, станции и условные ресурсы"),
     "mission_execution": ("physical/mission_execution.json", "Физическое переключение двух целей и резерв заряда"),
+    "mission_mixed_demo": ("physical/mission_mixed_demo.json", "Универсальная программа: точечная и полосная съёмки"),
+    "territories": ("physical/territories.json", "Территории наблюдений в координатах вращающейся Земли"),
     "adcs_ideal_legacy": ("physical/adcs_ideal_legacy.json", "Исторический ADCS без маховиков — только диагностика"),
     "payload_demo_legacy": ("physical/payload_demo_legacy.json", "Историческая проверка прибора"),
 }

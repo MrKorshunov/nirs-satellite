@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from nirs_satellite.launcher_core import (
-    ROOT, PROFILES, PROFILE_PHYSICAL, PROFILE_RESEARCH, PROFILE_TEST,
+    ROOT, PROFILES, PROFILE_PHYSICAL, PROFILE_STRIP, PROFILE_RESEARCH, PROFILE_TEST,
     build_plan, simulator_python,
 )
 
@@ -108,8 +108,8 @@ class NirsWindow:
         self.log.pack(fill="both", expand=True)
         self.log.configure(state="disabled")
         ttk.Label(self.window, text=(
-            "Физический режим переключается между двумя целями без перезапуска Basilisk. "
-            "Режим нескольких задач использует упрощённые ресурсные ограничения."
+            "Физический режим: две точки или произвольные точки и надирные полосы без оптимизации. "
+            "Отдельная Mission02 использует упрощённые ресурсные ограничения."
         ), wraplength=840).pack(anchor="w", pady=(12, 2))
         ttk.Label(self.window, text="Записанные результаты находятся в папке results/ проекта.",
                   foreground="#666666").pack(anchor="w")
@@ -121,7 +121,7 @@ class NirsWindow:
 
     def _new_name(self):
         code = self._code()
-        prefix = {"physical": "physical", "research": "research",
+        prefix = {"physical": "physical", "mixed": "swath", "research": "research",
                   "tests": "tests"}[code]
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
         base = prefix + "_" + now
@@ -134,13 +134,13 @@ class NirsWindow:
 
     def _update_profile(self):
         code = self._code()
-        self.hours.set("0.2" if code == PROFILE_PHYSICAL else "4" if
+        self.hours.set("0.2" if code in (PROFILE_PHYSICAL, PROFILE_STRIP) else "4" if
                        code == PROFILE_RESEARCH else "0")
         self.duration_entry.configure(state=("disabled" if code == PROFILE_TEST
                                              else "normal"))
         self.name_entry.configure(state=("disabled" if code == PROFILE_TEST
                                          else "normal"))
-        self.viz_check.configure(state=("normal" if code == PROFILE_PHYSICAL
+        self.viz_check.configure(state=("normal" if code in (PROFILE_PHYSICAL, PROFILE_STRIP)
                                         else "disabled"))
         self._new_name()
 
