@@ -106,6 +106,8 @@ def _case_check(case:str,summary:dict,baseline:dict|None=None)->dict:
                 "Radio sent outside externally scheduled windows")
         _expect(len(summary["planned_downlink_windows"])==2,
                 "Two scheduled radio windows not recorded")
+        _expect(all(int(w["actual_tx_samples"])>0 for w in summary["planned_downlink_windows"]),
+                "Second radio window did not actually transmit, so repeated-contact test is invalid")
     elif case=="partial_link":
         _expect(summary["generated_bits"]>0 and
                 0<summary["transmitted_bits"]<summary["generated_bits"],
@@ -113,6 +115,8 @@ def _case_check(case:str,summary:dict,baseline:dict|None=None)->dict:
     elif case=="slow_wheels":
         _expect(summary["physical_wheel_limit_rpm"]<100,
                 "Wheel stress configuration was not applied")
+        _expect(counts[0]==0 and not summary["mission_complete"],
+                "Physically impossible early slew was falsely marked successful")
     elif case=="refined_step":
         _expect(counts==[1,1,24],"0.25s physical result must contain two points + 24 strip lines")
         if baseline:
@@ -182,6 +186,7 @@ def run_suite(*,viz:bool=False,strict:bool=True)->Path:
                 camera["downlink"]["packet_bytes"]=500  # 0.5 s carries >=1 whole packet
             elif case=="slow_wheels":
                 wheels["rw"]["max_speed_rpm"]=15
+                cfg["tasks"][0]["planned_end_s"]=40
             elif case=="refined_step":
                 camera["capture"]["assumed_exposure_duration_s"]=0.25
                 cfg["tasks"][-1]["min_samples"]=24
