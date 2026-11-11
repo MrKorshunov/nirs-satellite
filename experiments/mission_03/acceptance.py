@@ -64,6 +64,12 @@ def _case_check(case:str,summary:dict,baseline:dict|None=None)->dict:
         _expect(abs(float(summary["coverage"]["total_covered_area_m2"])-
                     float(baseline["coverage"]["total_covered_area_m2"]))<1e-3,
                 "Coverage from same initial data not deterministic")
+    elif case=="shift_epoch":
+        _expect(summary["epoch"] is not None and
+                summary["epoch"]["gmst_start_deg"]>30,
+                "Test did not shift Earth orientation from reference epoch")
+        _expect(summary["epoch_orientation_error_deg"]<0.3,
+                "Basilisk physical Earth rotation not consistent with absolute UTC epoch")
     elif case=="idle":
         _expect(summary["task_count"]==0 and sum(counts)==0 and summary["generated_bits"]==0,
                 "Idle satellite fabricated imaging data")
@@ -133,7 +139,7 @@ def run_suite(*,viz:bool=False,strict:bool=True)->Path:
     with tempfile.TemporaryDirectory(prefix="mission05_cases_") as tmp:
         base=Path(tmp)
         for index,case in enumerate((
-            "reference","repeat_reference","idle","one","two","external_four",
+            "reference","repeat_reference","shift_epoch","idle","one","two","external_four",
             "offtrack","low_battery","no_station","memory_backpressure",
             "expired_window","repeated_downlink","partial_link",
             "slow_wheels","refined_step",
@@ -142,7 +148,9 @@ def run_suite(*,viz:bool=False,strict:bool=True)->Path:
             reg=copy.deepcopy(territories)
             camera=copy.deepcopy(hw)
             wheels=copy.deepcopy(adcs)
-            if case=="idle":
+            if case=="shift_epoch":
+                cfg["epoch_utc"]="2026-11-11T00:00:00Z"
+            elif case=="idle":
                 cfg["tasks"]=[]
             elif case=="two":
                 cfg["tasks"]=cfg["tasks"][:2]
