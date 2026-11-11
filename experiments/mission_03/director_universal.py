@@ -110,6 +110,34 @@ class UniversalMissionDirector(sysModel.SysModel):
         self.phase+=1
         self._assign_task(t)
 
+    def finalize(self,simulation_horizon_s:float):
+        """Finalize pending jobs when time stops, without falsely crediting an image."""
+        while self.phase<len(self.tasks):
+            job=self.tasks[self.phase]
+            name=job["id"]
+            samples=self.capture_count[name]
+            minimum=int(job.get("min_samples",1))
+            if job.get("kind","point")=="strip" and samples>=minimum:
+                status="completed"
+                reason=None
+            else:
+                status="horizon_incomplete"
+                counts=self.blocked[name]
+                observed=sorted(counts,key=lambda q:(-counts[q],q))
+                reason="simulation_horizon"
+                if observed:
+                    reason+="; main_observed_blocker="+observed[0]
+            self.task_status[name]=status
+            self.task_reason[name]=reason
+            self.events.append({
+                "t_s":float(simulation_horizon_s),
+                "event":"task_completed" if status=="completed" else "task_skipped",
+                "task":name,"status":status,"reason":reason,
+                "observed_blockers":dict(self.blocked[name]),
+                "samples":samples
+            })
+            self.phase+=1
+
     def _subpoint(self):
         r=self.spacecraft.scStateOutMsg.read().r_BN_N
         rot=self.planet_msg.read().J20002Pfix
