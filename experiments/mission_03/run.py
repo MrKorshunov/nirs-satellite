@@ -119,12 +119,12 @@ def _draw_vizard_markers(sim, process, task, sc, earth, data, targets,
         label="GROUND STATION",markerScale=10.0,
         color=[0,220,100,255],isHidden=False,
         fieldOfView=math.radians(160),range=2_000_000.0)
-    # Static lines to both sites: physical targeting changes in recorded
-    # spacecraft attitude; do not mutate native Vizard objects during run.
-    vizSupport.createTargetLine(viz,toBodyName=targets[0]["id"],
-                                lineColor=[255,0,255,255])
-    vizSupport.createTargetLine(viz,toBodyName=targets[1]["id"],
-                                lineColor=[255,160,30,255])
+    # Static Vizard lines are reference markers. Dynamic pointing is visible
+    # in the spacecraft attitude, not inferred from these reference lines.
+    for site in targets:
+        if site.get("kind","point")=="point":
+            vizSupport.createTargetLine(viz,toBodyName=site["id"],
+                                        lineColor=[255,160,30,255])
     viz.settings.showLocationLabels=1
     viz.settings.showLocationCones=-1
     viz.settings.showLocationCommLines=-1
@@ -287,7 +287,14 @@ def _write_outputs(
 def main():
     parser=argparse.ArgumentParser(
         description="Mission03: one Basilisk spacecraft, two physical target switches")
-    parser.add_argument("--config",type=Path,default=EXEC_CONFIG)
+    parser.add_argument("--config",type=Path,default=EXEC_CONFIG,
+                        help="Executor control settings; accepts the mixed point/strip demo JSON")
+    parser.add_argument("--regions",type=Path,default=input_path("territories"),
+                        help="Spherical rotating-Earth fixed polygon regions")
+    parser.add_argument("--program",type=Path,
+                        help="External ordered task program JSON. No optimization inside executor.")
+    parser.add_argument("--require-all-complete",action="store_true",
+                        help="Fail when a physical point/strip task did not complete")
     parser.add_argument("--duration-hours",type=float)
     parser.add_argument("--output-name",default="mission03_two_targets")
     parser.add_argument("--viz-mode",choices=("file","off"),default="file")
@@ -299,18 +306,34 @@ def main():
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,47}",args.output_name):
         parser.error("Use ASCII alphanumeric output name, starting with letter")
     cfg,sha=_read(args.config)
+    if args.program is not None:
+        supplied,program_sha=_read(args.program)
+        if supplied.get("execution_policy")!="provided_order_only":
+            parser.error("Program must be fixed externally provided order, not an optimizer")
+        cfg={**cfg,"tasks":supplied["tasks"],
+             "execution_policy":supplied["execution_policy"],
+             "provenance":supplied["provenance"]}
+    region_cfg,region_sha=_read(args.regions)
+    universal=(args.program is not None or cfg.get("execution_policy")=="provided_order_only"
+               or len(cfg["tasks"])!=2 or any(
+                   task.get("kind","point")=="strip" for task in cfg["tasks"]))
     orbit,orbit_sha=_read(input_path("orbit"))
     geo,geo_sha=_read(input_path("earth_target"))
     adcs_cfg,adcs_sha=_read(input_path("adcs_wheels"))
     power_cfg,power_sha=_read(input_path("power"))
     mission_cfg,mission_sha=_read(input_path("camera_storage_radio"))
     step=float(mission_cfg["capture"]["assumed_exposure_duration_s"])
-    validate(cfg,step_s=step,
-             product_name=mission_cfg["capture"]["product_name"],
-             partition_name=mission_cfg["storage"]["partition_name"],
-             product_bytes=int(mission_cfg["capture"]["product_bytes"]),
-             storage_bytes=int(mission_cfg["storage"]["capacity_bytes"]),
-             initial_energy_wh=float(power_cfg["battery_initial_wh"]))
+    if universal:
+        from experiments.mission_03.universal_inputs import validate_program
+        region_index=validate_program(cfg,region_cfg,mission_cfg,power_cfg,step)
+    else:
+        validate(cfg,step_s=step,
+                 product_name=mission_cfg["capture"]["product_name"],
+                 partition_name=mission_cfg["storage"]["partition_name"],
+                 product_bytes=int(mission_cfg["capture"]["product_bytes"]),
+                 storage_bytes=int(mission_cfg["storage"]["capacity_bytes"]),
+                 initial_energy_wh=float(power_cfg["battery_initial_wh"]))
+        region_index={}
     hours=cfg["default_duration_hours"] if args.duration_hours is None else args.duration_hours
     if not math.isfinite(hours) or not (0.2<=hours<=2):
         parser.error("Mission03 supports 0.2–2 simulation hours")
@@ -372,6 +395,11 @@ def main():
     sim.AddModelToTask(task,sc,ModelPriority=150)
 
     first=cfg["tasks"][0]
+    if universal and first.get("kind","point")=="strip":
+        polygon=region_index[first["region_id"]]["polygon_lat_lon_deg"]
+        first={"lat_deg":sum(p[0] for p in polygon)/len(polygon),
+               "lon_deg":sum(p[1] for p in polygon)/len(polygon),
+               "altitude_m":0.,"minimum_elevation_deg":0.,"maximum_range_m":-1.}
     target=groundLocation.GroundLocation()
     target.ModelTag="MISSION03_ActiveTarget"
     target.planetRadius=float(orbit["reference_radius_m"])
@@ -384,9 +412,19 @@ def main():
     data=attach_datachain(
         sim,task,sc,eph.planetOutMsgs[0],float(orbit["reference_radius_m"]),
         target.accessOutMsgs[0],adcs.guidance_msg,step,profile="nominal")
-    # Create second Basilisk partition BEFORE initialization.
-    data.storage_model.addPartition(cfg["tasks"][1]["id"])
-    data.transmitter_model.numBuffers=2
+    # Create every partition before InitializeSimulation. A real Basilisk
+    # transmitter can serve the separate recorded products; no fake buffer.
+    if universal:
+        first_partition=mission_cfg["storage"]["partition_name"]
+        for job in cfg["tasks"]:
+            if job["id"]!=first_partition:
+                data.storage_model.addPartition(job["id"])
+        data.transmitter_model.numBuffers=len(cfg["tasks"])+(
+            0 if any(j["id"]==first_partition for j in cfg["tasks"]) else 1)
+        data.instrument_model.nodeDataName=cfg["tasks"][0]["id"]
+    else:
+        data.storage_model.addPartition(cfg["tasks"][1]["id"])
+        data.transmitter_model.numBuffers=2
     power=attach_power(sim,task,sc,eph.planetOutMsgs[0],mission_loads_always_on=False)
     sc_rec=sc.scStateOutMsg.recorder()
     ground_rec=target.currentGroundStateOutMsg.recorder()
@@ -397,23 +435,46 @@ def main():
     bin_path=None
     viz=None
     if args.viz_mode=="file":
-        bin_path,viz=_draw_vizard_markers(sim,process,task,sc,earth,data,cfg["tasks"],
+        marker_sites=[]
+        for job in cfg["tasks"]:
+            if job.get("kind","point")=="strip":
+                ring=region_index[job["region_id"]]["polygon_lat_lon_deg"]
+                marker_sites.append({"id":job["id"],
+                    "lat_deg":sum(x[0] for x in ring)/len(ring),
+                    "lon_deg":sum(x[1] for x in ring)/len(ring),
+                    "altitude_m":0.,"kind":"strip"})
+            else:
+                marker_sites.append(job)
+        bin_path,viz=_draw_vizard_markers(sim,process,task,sc,earth,data,marker_sites,
                                            float(orbit["reference_radius_m"]),
                                            args.output_name,float(args.viz_step_s))
     print(f"MISSION 03 physical dynamics: {horizon_s:.1f}s at {step}s; "
-          f"two targets; battery gate every {control_step:g}s",flush=True)
+          f"{len(cfg['tasks'])} sequential physical tasks; "
+          f"battery gate every {control_step:g}s; "
+          f"universal={universal}",flush=True)
     # Python SysModel is scheduled AFTER battery, storage and radio modules.
     # It can inspect actual simulated states and command the NEXT dynamics
     # update. Crucially: ExecuteSimulation is called EXACTLY ONCE, which is
     # required for stable Windows/Linux Vizard file recording.
-    from experiments.mission_03.director import PhysicalMissionDirector
-    director=PhysicalMissionDirector(
-        cfg=cfg,data=data,target=target,power=power,
-        product_bits=8*int(mission_cfg["capture"]["product_bytes"]),
-        nominal_att_tol=mission_cfg["capture"]["maximum_attitude_mrp_error"],
-        nominal_rate_tol=mission_cfg["capture"]["maximum_rate_error_rad_s"],
-        nominal_radio_bps=mission_cfg["downlink"]["rate_bits_per_s"],
-    )
+    if universal:
+        from experiments.mission_03.director_universal import UniversalMissionDirector
+        director=UniversalMissionDirector(
+            cfg=cfg,regions=region_index,data=data,target=target,power=power,
+            spacecraft=sc,planet_msg=eph.planetOutMsgs[0],
+            earth_radius_m=float(orbit["reference_radius_m"]),step_s=step,
+            default_product_bytes=int(mission_cfg["capture"]["product_bytes"]),
+            nominal_att_tol=mission_cfg["capture"]["maximum_attitude_mrp_error"],
+            nominal_rate_tol=mission_cfg["capture"]["maximum_rate_error_rad_s"],
+            nominal_radio_bps=mission_cfg["downlink"]["rate_bits_per_s"])
+    else:
+        from experiments.mission_03.director import PhysicalMissionDirector
+        director=PhysicalMissionDirector(
+            cfg=cfg,data=data,target=target,power=power,
+            product_bits=8*int(mission_cfg["capture"]["product_bytes"]),
+            nominal_att_tol=mission_cfg["capture"]["maximum_attitude_mrp_error"],
+            nominal_rate_tol=mission_cfg["capture"]["maximum_rate_error_rad_s"],
+            nominal_radio_bps=mission_cfg["downlink"]["rate_bits_per_s"],
+        )
     sim.AddModelToTask(task,director,ModelPriority=74)
     sim.InitializeSimulation()
     print("MISSION03: Basilisk started: one continuous ExecuteSimulation",flush=True)
@@ -421,30 +482,50 @@ def main():
     sim.ExecuteSimulation()
     print("MISSION03: physical propagation finished; checking evidence",flush=True)
     events=director.events
-    switch_t=director.switch_t
-    granted_segments=director.granted_segments
-    observations=sum(x["event"]=="captured" for x in events)
+    if universal:
+        switch_t=director.switch_times[0] if director.switch_times else None
+        granted_segments=director.power_enabled_segments
+        observations=sum(director.capture_count.values())
+    else:
+        switch_t=director.switch_t
+        granted_segments=director.granted_segments
+        observations=sum(x["event"]=="captured" for x in events)
     source_hashes={
         str(path.relative_to(ROOT)):checksum for path,checksum in (
             (args.config.resolve(),sha),(input_path("orbit"),orbit_sha),
             (input_path("earth_target"),geo_sha),(input_path("adcs_wheels"),adcs_sha),
             (input_path("power"),power_sha),(input_path("camera_storage_radio"),mission_sha))
     }
-    result=_write_outputs(
-        out,cfg,source_hashes,horizon_s,sc_rec,ground_rec,access_rec,
-        adcs,data,power,events,switch_t,granted_segments,observations,
-        bin_path,step,float(mission_cfg["downlink"]["rate_bits_per_s"]),
-        float(cfg["reserve_wh"]))
+    if universal:
+        from experiments.mission_03.report_universal import save_results
+        source_hashes[str(args.regions)]=region_sha
+        if args.program is not None:
+            source_hashes[str(args.program)]=program_sha
+        (out/"execution_program_used.json").write_text(
+            json.dumps(cfg,ensure_ascii=False,indent=2),encoding="utf-8")
+        (out/"territories_used.json").write_text(
+            json.dumps(region_cfg,ensure_ascii=False,indent=2),encoding="utf-8")
+        result=save_results(
+            out=out,cfg=cfg,regions=region_index,source_hashes=source_hashes,
+            state=sc_rec,target_rec=ground_rec,target_access=access_rec,
+            adcs=adcs,data=data,power=power,director=director,
+            bin_path=bin_path,step=step)
+    else:
+        result=_write_outputs(
+            out,cfg,source_hashes,horizon_s,sc_rec,ground_rec,access_rec,
+            adcs,data,power,events,switch_t,granted_segments,observations,
+            bin_path,step,float(mission_cfg["downlink"]["rate_bits_per_s"]),
+            float(cfg["reserve_wh"]))
     print("MISSION03 PHYSICAL:",json.dumps({
         "captures":[task["capture_count"] for task in result["tasks"]],
-        "retarget_s":result["retarget_time_s"],
+        "retarget_s":result.get("retarget_time_s",director.switch_times if universal else None),
         "generated_MB":round(result["generated_bits"]/8e6,4),
         "transmitted_MB":round(result["transmitted_bits"]/8e6,4),
         "battery_minimum_wh":round(result["battery_minimum_wh"],4),
         "checks_passed":result["checks_passed"],
         "vizard":result["vizard_file"],
     },ensure_ascii=False),flush=True)
-    if args.require_two_captures and not result["checks_passed"]:
+    if (args.require_two_captures or args.require_all_complete) and not result["checks_passed"]:
         raise SystemExit(f"MISSION03 ACCEPTANCE FAILED: {result['checks']}")
 
 
