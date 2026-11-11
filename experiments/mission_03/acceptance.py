@@ -185,7 +185,23 @@ def run_suite(*,viz:bool=False,strict:bool=True)->Path:
                 camera["downlink"]["rate_bits_per_s"]=10000
                 camera["downlink"]["packet_bytes"]=500  # 0.5 s carries >=1 whole packet
             elif case=="slow_wheels":
-                wheels["rw"]["max_speed_rpm"]=15
+                # Real Basilisk motor torque is bounded, but a coarse 0.5s
+                # integration step can jump across an unrealistically tiny
+                # speed cap if torque remains at its nominal high value.
+                # Construct a coherent low-speed, low-torque wheel instead
+                # of silently relaxing the independent wheel-speed check.
+                import math
+                rw=wheels["rw"]
+                rw["max_speed_rpm"]=15.
+                rw["max_torque_nm"]=0.0001
+                rw["max_momentum_nms"]=(
+                    float(rw["spin_inertia_kg_m2"])*15.*2*math.pi/60.)
+                max_rate_step_rpm=(rw["max_torque_nm"]/
+                    rw["spin_inertia_kg_m2"]*
+                    float(camera["capture"]["assumed_exposure_duration_s"])*
+                    60/(2*math.pi))
+                _expect(max_rate_step_rpm<2.,
+                    "Stress wheel torque too high to resolve speed cap at this time step")
                 cfg["tasks"][0]["planned_end_s"]=40
             elif case=="refined_step":
                 camera["capture"]["assumed_exposure_duration_s"]=0.25
@@ -220,9 +236,12 @@ def run_suite(*,viz:bool=False,strict:bool=True)->Path:
                 _expect(p.returncode==0,f"{case}: Basilisk exited with {p.returncode}; read {log}")
                 _expect(result_path.is_file(),f"{case}: no physical summary")
                 report=json.loads(result_path.read_text(encoding="utf-8"))
-                result=_case_check(case,report,baseline=reference)
+                # Preserve the true reference physical telemetry even when
+                # one of its scientific assertions fails: the repeated run
+                # must remain an independent deterministic repeat check.
                 if case=="reference":
                     reference=report
+                result=_case_check(case,report,baseline=reference)
                 checks[case]={
                     "pass":True,
                     "log":str(log.relative_to(ROOT)),
