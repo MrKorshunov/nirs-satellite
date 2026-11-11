@@ -9,7 +9,8 @@
 5. [Сравнение с примером Basilisk](COMPARISON_BASILISK.md)
 6. [Новый физический исполнитель двух целей Mission03](../experiments/mission_03/README.md)
 7. [Универсальная физическая модель и полосная съёмка](UNIVERSAL_EXECUTOR_AND_STRIP.md)
-8. [Техническое руководство по запуску на Windows](WINDOWS_GUI_GUIDE.md)
+8. [Mission 05 — научная подготовка: UTC, WGS84, план/факт, 16 приёмочных сценариев](SCIENTIFIC_READINESS_MISSION05.md)
+9. [Техническое руководство по запуску на Windows](WINDOWS_GUI_GUIDE.md)
 
 **Для воспроизводимости и научного отчёта:**
 

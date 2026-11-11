@@ -15,4 +15,4 @@
 
 **Это два независимых экспериментальных профиля:** численно одинаковое поле памяти в `physical/camera_storage_radio.json` и `research/observation_tasks.json` не делает их связанными. При желании сравнить подробный физический КА и упрощённый планировщик входные числа необходимо явно согласовать.
 
-Полное описание параметров: [docs/INPUT_DATA.md](../docs/INPUT_DATA.md) и [полосная съёмка и JSON-контракт](../docs/UNIVERSAL_EXECUTOR_AND_STRIP.md).
+Полное описание параметров: [docs/INPUT_DATA.md](../docs/INPUT_DATA.md), [полосная съёмка](../docs/UNIVERSAL_EXECUTOR_AND_STRIP.md) и [плановые интервалы, UTC, WGS84, приёмка](../docs/SCIENTIFIC_READINESS_MISSION05.md). Для перехода на Mission05 повторно запустите `SETUP_NIRS.cmd` (новые геобиблиотеки).
