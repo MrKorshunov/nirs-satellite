@@ -16,6 +16,7 @@ from experiments.mission_03.swath_geometry import (
     swath_intersects_region, great_circle_distance_m,
 )
 from experiments.mission_03.timeline import task_window, radio_window_open, within_task_window
+from experiments.mission_03.coverage import LiveStripGeometry
 
 class UniversalMissionDirector(sysModel.SysModel):
     def __init__(self, *, cfg, regions, data, target, power, spacecraft,
@@ -32,6 +33,9 @@ class UniversalMissionDirector(sysModel.SysModel):
         self.planet_msg=planet_msg
         self.radius=float(earth_radius_m)
         self.step=float(step_s)
+        # Cached WGS84 footprint polygons for both physical permission and
+        # postflight report, avoiding spherical circular-gate false positives.
+        self._footprints=LiveStripGeometry(regions)
         self.tasks=list(cfg["tasks"])
         self.phase=0
         self.nominal_att_tol=float(nominal_att_tol)
@@ -167,8 +171,15 @@ class UniversalMissionDirector(sysModel.SysModel):
                 overlap,distance,width=swath_intersects_region(
                     lat,lon,h,float(job["fov_cross_track_deg"]),
                     region["polygon_lat_lon_deg"],self.radius)
-                if not overlap:
-                    raise AssertionError("Basilisk camera produced a strip line outside ground swath")
+                previous=self.ground_track[-2] if len(self.ground_track)>1 else None
+                measured_overlap=self._footprints.cell_overlap_m2(
+                    job["region_id"],
+                    (previous["lat_deg"],previous["lon_deg"]) if previous else None,
+                    (lat,lon),width,predict_next=False)
+                if measured_overlap<=0:
+                    raise AssertionError(
+                        "Actual Basilisk strip line lacks a modeled rectangular "
+                        "footprint intersection with the observed territory")
                 length=0.0
                 if self._previous_strip_fix is not None and self._previous_strip_time is not None:
                     lag=t-self._previous_strip_time
@@ -180,6 +191,7 @@ class UniversalMissionDirector(sysModel.SysModel):
                 record={"t_s":t,"task":name,"lat_deg":lat,"lon_deg":lon,
                         "altitude_m":h,"region_signed_distance_m":distance,
                         "swath_width_m":width,"along_track_m":length,
+                        "instant_footprint_overlap_m2":measured_overlap,
                         "approx_area_m2":length*width,"data_bits":baud*self.step}
                 self.lines.append(record)
                 self.events.append({"t_s":t,"event":"strip_line","task":name,
@@ -214,10 +226,19 @@ class UniversalMissionDirector(sysModel.SysModel):
             self._last_subpoint=(lat,lon,h)
             self.target.specifyLocation(macros.D2R*lat,macros.D2R*lon,0.)
             reg=self.regions[job["region_id"]]
-            overlap,_,_=swath_intersects_region(
-                lat,lon,h,float(job["fov_cross_track_deg"]),
-                reg["polygon_lat_lon_deg"],self.radius)
-            self._strip_eligible=overlap
+            # The camera command applies to the NEXT Basilisk dynamics step.
+            # Test the predicted narrow rectangular next strip-cell against
+            # the region, not a symmetric circular radius around current nadir.
+            from experiments.mission_03.swath_geometry import nadir_footprint_width_m
+            width=nadir_footprint_width_m(h,float(job["fov_cross_track_deg"]))
+            previous=self.ground_track[-2] if len(self.ground_track)>1 else None
+            next_overlap=self._footprints.cell_overlap_m2(
+                job["region_id"],
+                (previous["lat_deg"],previous["lon_deg"]) if previous else None,
+                (lat,lon),width,predict_next=True)
+            # Avoid spurious grazing-boundary captures caused by one-step
+            # extrapolation errors of a few metres near the polygon boundary.
+            self._strip_eligible=next_overlap>10_000.
 
         # Battery policy is sampled at the declared slower 5s cadence. Camera
         # geometry still changes each 0.5s, not every 5s.
