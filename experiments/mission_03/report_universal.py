@@ -115,6 +115,15 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
         if detail["kind"]=="strip":
             detail.update(coverage["task_coverage"].get(detail["id"],{}))
     mission_complete=all(v["status"]=="completed" for v in details)
+    # Independently confirm the actual Basilisk Earth-fixed longitude at t=0
+    # agrees with UTC+UT1-based GMST and inertial spacecraft longitude.
+    # This checks the installed orientation rather than trusting a JSON label.
+    orientation_error_deg=None
+    if epoch_info is not None:
+        inertial_lon0=math.degrees(math.atan2(position[0,1],position[0,0]))
+        expected_lon=(inertial_lon0-float(epoch_info["gmst_start_deg"])+180.)%360.-180.
+        observed_lon=float(director.ground_track[0]["lon_deg"])
+        orientation_error_deg=abs((observed_lon-expected_lon+180.)%360.-180.)
     checks={
         "physical_generated_bytes_match_event_log":abs(expected_bits-bits_in)<1.0,
         "actual_boresight_for_every_line":bool(np.all(at_shot<=maximum+0.15)),
@@ -131,6 +140,8 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
         "coverage_union_bounded_by_region_area":all(
             0<=q["covered_area_m2"]<=q["region_area_m2"]+1
             for q in coverage["regions"].values()),
+        "basilisk_earth_longitude_matches_utc_gmst":(
+            orientation_error_deg is None or orientation_error_deg<0.3),
     }
     output=out
     output.mkdir(parents=True,exist_ok=True)
@@ -199,6 +210,7 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
         "mission_complete":mission_complete,
         "mission_outcome":"complete" if mission_complete else "partially_completed_or_missed",
         "epoch":epoch_info,
+        "epoch_orientation_error_deg":orientation_error_deg,
         "utc_end":date_at(epoch_info["epoch_utc"],t[-1]) if epoch_info else None,
         "planned_downlink_windows":planned_radio,
         "coverage":coverage,
