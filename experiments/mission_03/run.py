@@ -312,6 +312,10 @@ def main():
         description="Mission03: one Basilisk spacecraft, two physical target switches")
     parser.add_argument("--config",type=Path,default=EXEC_CONFIG,
                         help="Executor control settings; accepts the mixed point/strip demo JSON")
+    parser.add_argument("--camera-config",type=Path,default=input_path("camera_storage_radio"),
+                        help="Optional alternate hardware profile; must pass physical unit validation")
+    parser.add_argument("--adcs-config",type=Path,default=input_path("adcs_wheels"),
+                        help="Optional alternate RW/controller config for repeatable limit tests")
     parser.add_argument("--regions",type=Path,default=input_path("territories"),
                         help="Spherical rotating-Earth fixed polygon regions")
     parser.add_argument("--program",type=Path,
@@ -348,9 +352,9 @@ def main():
                    task.get("kind","point")=="strip" for task in cfg["tasks"]))
     orbit,orbit_sha=_read(input_path("orbit"))
     geo,geo_sha=_read(input_path("earth_target"))
-    adcs_cfg,adcs_sha=_read(input_path("adcs_wheels"))
+    adcs_cfg,adcs_sha=_read(args.adcs_config)
     power_cfg,power_sha=_read(input_path("power"))
-    mission_cfg,mission_sha=_read(input_path("camera_storage_radio"))
+    mission_cfg,mission_sha=_read(args.camera_config)
     step=float(mission_cfg["capture"]["assumed_exposure_duration_s"])
     time_reference=epoch_metadata(cfg) if universal else None
     if universal:
@@ -445,10 +449,12 @@ def main():
     target.planetInMsg.subscribeTo(eph.planetOutMsgs[0])
     sim.AddModelToTask(task,target,ModelPriority=100)
 
-    adcs=attach_adcs(sim,task,sc,target,orbit,step)
+    adcs=attach_adcs(sim,task,sc,target,orbit,step,
+                     config_path_override=args.adcs_config)
     data=attach_datachain(
         sim,task,sc,eph.planetOutMsgs[0],float(orbit["reference_radius_m"]),
-        target.accessOutMsgs[0],adcs.guidance_msg,step,profile="nominal")
+        target.accessOutMsgs[0],adcs.guidance_msg,step,profile="nominal",
+        config_path_override=args.camera_config)
     # Create every partition before InitializeSimulation. A real Basilisk
     # transmitter can serve the separate recorded products; no fake buffer.
     if universal:
@@ -533,8 +539,8 @@ def main():
     source_hashes={
         str(path.relative_to(ROOT)):checksum for path,checksum in (
             (args.config.resolve(),sha),(input_path("orbit"),orbit_sha),
-            (input_path("earth_target"),geo_sha),(input_path("adcs_wheels"),adcs_sha),
-            (input_path("power"),power_sha),(input_path("camera_storage_radio"),mission_sha))
+            (input_path("earth_target"),geo_sha),(args.adcs_config,adcs_sha),
+            (input_path("power"),power_sha),(args.camera_config,mission_sha))
     }
     if universal:
         from experiments.mission_03.report_universal import save_results
