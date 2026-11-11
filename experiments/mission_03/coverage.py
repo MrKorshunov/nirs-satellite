@@ -44,7 +44,13 @@ def _footprint_at(t:float,lat:float,lon:float,width_m:float,
         raise ValueError("At least two true Basilisk orbit samples required")
     # Track time is monotonic. We use closest before/after to determine
     # instantaneous projected velocity (no estimated orbit approximation).
-    i=min(range(len(trajectory)),key=lambda j:abs(float(trajectory[j]["t_s"])-t))
+    from bisect import bisect_left
+    # O(log N) lookup instead of scanning the entire (potentially day-long)
+    # ground track for every individual camera line.
+    epochs=[float(item["t_s"]) for item in trajectory]
+    hi=min(len(epochs)-1,bisect_left(epochs,t))
+    lo=max(0,hi-1)
+    i=min((lo,hi),key=lambda j:abs(epochs[j]-t))
     first=trajectory[max(0,i-1)]
     last=trajectory[min(len(trajectory)-1,i+1)]
     dt=float(last["t_s"])-float(first["t_s"])
@@ -99,7 +105,7 @@ def polygon_coverage(regions:dict, tasks:list, lines:list, ground_track:list,
             if not clipped.is_empty and clipped.area>0:
                 cells.append(clipped)
         # Don't count the same footprint more than once within one strip task.
-        union=unary_union(cells) if cells else target.intersection(target.buffer(-1e20))
+        union=unary_union(cells) if cells else None
         measured=0.0 if not cells else float(union.area)
         collected_by_region[target_id].extend(cells)
         target_area=float(target.area)
