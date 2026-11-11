@@ -1,0 +1,53 @@
+{
+  "scenario_id": "mission04_territories",
+  "provenance": "SYNTHETIC Earth-fixed region polygons derived for approximate 500 km 45-deg-inclination orbit; NOT surveyed boundaries",
+  "frame": "planet_fixed_spherical_lat_lon_deg",
+  "regions": [
+    {
+      "id": "CORRIDOR_ALPHA",
+      "name": "Демонстрационная территория вдоль трассы орбиты",
+      "polygon_lat_lon_deg": [
+        [
+          17.8,
+          47.1
+        ],
+        [
+          17.8,
+          54.3
+        ],
+        [
+          24,
+          54.3
+        ],
+        [
+          24,
+          47.1
+        ]
+      ],
+      "note": "Пример пересекает примерную подспутниковую трассу при t≈410–560 с, для отсчёта t0 с синтетической ориентацией Земли"
+    },
+    {
+      "id": "CORRIDOR_BETA",
+      "name": "Второй пример территории для ручных экспериментов",
+      "polygon_lat_lon_deg": [
+        [
+          8.8,
+          37.2
+        ],
+        [
+          8.8,
+          44.4
+        ],
+        [
+          15.4,
+          44.4
+        ],
+        [
+          15.4,
+          37.2
+        ]
+      ],
+      "note": "Пример около более раннего участка той же синтетической трассы"
+    }
+  ]
+}
