@@ -75,6 +75,34 @@ jobs:
           assert r["task_count"]==1 and r["tasks"][0]["capture_count"]==1 and r["checks_passed"]
           print("ONE PHYSICAL TASK PASSED")
           PY
+      - name: Check external planner-facing JSON contract with four physical tasks
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          cfg=json.loads(Path("inputs/physical/mission_mixed_demo.json").read_text())
+          extra=dict(cfg["tasks"][1])
+          extra["id"]="TARGET_03_IMAGE"
+          extra["lat_deg"]=15.2
+          extra["lon_deg"]=43.7
+          cfg["tasks"].insert(2,extra)
+          Path("external_order_ci.json").write_text(json.dumps({
+              "scenario_id":"external_order_demo",
+              "schema_version":1,
+              "provenance":"SYNTHETIC fixed-order external program, no optimizer",
+              "execution_policy":"provided_order_only",
+              "tasks":cfg["tasks"]},indent=2))
+          PY
+          python -m experiments.mission_03.run --config inputs/physical/mission_execution.json --program external_order_ci.json --regions inputs/physical/territories.json --viz-mode off --duration-hours 0.2 --require-all-complete --output-name mission04_four_tasks
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("results/mission04_four_tasks/mission03_summary.json").read_text())
+          assert r["checks_passed"],r["checks"]
+          assert [x["capture_count"] for x in r["tasks"]]==[1,1,1,12],r["tasks"]
+          assert r["physical_target_switch_count"]==3
+          print("EXTERNAL 4-TASK JSON EXECUTED PHYSICALLY, NO OPTIMIZER")
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
