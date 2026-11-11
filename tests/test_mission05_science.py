@@ -96,6 +96,51 @@ class CoverageTests(unittest.TestCase):
         self.assertAlmostEqual(double["regions"]["R"]["covered_area_m2"],m,places=4)
         self.assertLess(first["regions"]["R"]["covered_percent"],100)
 
+    def test_directional_gate_rejects_false_upstream_circle(self):
+        from experiments.mission_03.coverage import LiveStripGeometry
+        from experiments.mission_03.swath_geometry import swath_intersects_region
+        polygon=[[-0.01,0.01],[-0.01,0.02],[0.01,0.02],[0.01,0.01]]
+        gate=LiveStripGeometry({"R":{"polygon_lat_lon_deg":polygon}})
+        # Old radial-distance gate falsely permits imaging because its
+        # 3-km circle touches a region 2.2 km AHEAD of the satellite.
+        # The physical camera strip is cross-track and does not.
+        circular,_,_=swath_intersects_region(
+            0,-0.01,500000,0.68755,polygon,6378137)
+        self.assertTrue(circular)
+        area=gate.cell_overlap_m2(
+            "R",(0,-0.015),(0,-0.01),6000,predict_next=True)
+        self.assertEqual(area,0.)
+        # When the true predicted track enters the region it must permit.
+        area2=gate.cell_overlap_m2(
+            "R",(0,0),(0,0.005),6000,predict_next=True)
+        self.assertGreater(area2,10000.)
+        # The actual footprint at the earlier sample is still outside.
+        actual=gate.cell_overlap_m2(
+            "R",(0,0),(0,0.005),6000,predict_next=False)
+        self.assertEqual(actual,0.)
+
+    def test_live_gate_actual_and_report_footprint_agree(self):
+        from experiments.mission_03.coverage import LiveStripGeometry,polygon_coverage
+        polygon=[[-0.01,0.01],[-0.01,0.02],[0.01,0.02],[0.01,0.01]]
+        regions={"R":{"polygon_lat_lon_deg":polygon}}
+        gate=LiveStripGeometry(regions)
+        previous=(0,0.004)
+        actual=(0,0.011)
+        overlap=gate.cell_overlap_m2(
+            "R",previous,actual,6000,predict_next=False)
+        self.assertGreater(overlap,10000.)
+        trajectory=[
+            {"t_s":0,"lat_deg":previous[0],"lon_deg":previous[1]},
+            {"t_s":1,"lat_deg":actual[0],"lon_deg":actual[1]}]
+        task=[{"id":"S","kind":"strip","region_id":"R"}]
+        lines=[{"t_s":1,"task":"S","lat_deg":actual[0],
+                "lon_deg":actual[1],"swath_width_m":6000,
+                "altitude_m":500000}]
+        report=polygon_coverage(regions,task,lines,trajectory,1.)
+        self.assertAlmostEqual(
+            report["regions"]["R"]["covered_area_m2"],
+            overlap,delta=max(1.,overlap*.001))
+
     def test_coverage_zero_when_no_basilisk_data(self):
         from experiments.mission_03.coverage import polygon_coverage
         regions={"R":{"polygon_lat_lon_deg":[[0,0],[0,0.1],[0.1,0.1],[0.1,0]]}}
