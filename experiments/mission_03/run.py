@@ -313,6 +313,8 @@ def main():
                         help="Executor control settings; accepts the mixed point/strip demo JSON")
     parser.add_argument("--regions",type=Path,default=input_path("territories"),
                         help="Spherical rotating-Earth fixed polygon regions")
+    parser.add_argument("--time-config",type=Path,default=input_path("time_reference"),
+                        help="Synthetic baseline or dated approximate UTC/WGS84 time anchor")
     parser.add_argument("--program",type=Path,
                         help="External ordered task program JSON. No optimization inside executor.")
     parser.add_argument("--require-all-complete",action="store_true",
@@ -338,6 +340,13 @@ def main():
              "execution_policy":supplied["execution_policy"],
              "provenance":supplied["provenance"]}
     region_cfg,region_sha=_read(args.regions)
+    time_cfg,time_sha=_read(args.time_config)
+    from experiments.mission_03.geo_time import epoch_parameters
+    time_ref=epoch_parameters(time_cfg)
+    if time_ref["mode"]=="utc_approx_wgs84" and region_cfg["frame"]!="wgs84_geodetic_deg":
+        parser.error("UTC/WGS84 mode requires territories frame=wgs84_geodetic_deg")
+    if time_ref["mode"]=="synthetic" and region_cfg["frame"]=="wgs84_geodetic_deg":
+        parser.error("WGS84 polygons require UTC/WGS84 time mode to avoid frame mixing")
     universal=(args.program is not None or cfg.get("execution_policy")=="provided_order_only"
                or len(cfg["tasks"])!=2 or any(
                    task.get("kind","point")=="strip" for task in cfg["tasks"]))
@@ -392,7 +401,9 @@ def main():
     e=geo["earth"]
     eph.rightAscension=planetEphemeris.DoubleVector([math.radians(e["rotational_pole_ra_deg"])])
     eph.declination=planetEphemeris.DoubleVector([math.radians(e["rotational_pole_dec_deg"])])
-    eph.lst0=planetEphemeris.DoubleVector([math.radians(e["initial_sidereal_angle_deg"])])
+    reference_angle=(time_ref["gmst_at_epoch_deg"] if time_ref["mode"]=="utc_approx_wgs84"
+                     else float(e["initial_sidereal_angle_deg"]))
+    eph.lst0=planetEphemeris.DoubleVector([math.radians(reference_angle)])
     eph.rotRate=planetEphemeris.DoubleVector([float(e["rotation_rate_rad_s"])])
     sim.AddModelToTask(task,eph,ModelPriority=200)
 
@@ -491,7 +502,8 @@ def main():
             default_product_bytes=int(mission_cfg["capture"]["product_bytes"]),
             nominal_att_tol=mission_cfg["capture"]["maximum_attitude_mrp_error"],
             nominal_rate_tol=mission_cfg["capture"]["maximum_rate_error_rad_s"],
-            nominal_radio_bps=mission_cfg["downlink"]["rate_bits_per_s"])
+            nominal_radio_bps=mission_cfg["downlink"]["rate_bits_per_s"],
+            time_reference=time_ref)
     else:
         from experiments.mission_03.director import PhysicalMissionDirector
         director=PhysicalMissionDirector(
@@ -507,6 +519,8 @@ def main():
     sim.ConfigureStopTime(macros.sec2nano(horizon_s))
     sim.ExecuteSimulation()
     print("MISSION03: physical propagation finished; checking evidence",flush=True)
+    if universal:
+        director.finish(horizon_s)
     events=director.events
     if universal:
         switch_t=director.switch_times[0] if director.switch_times else None
@@ -524,6 +538,10 @@ def main():
     }
     if universal:
         from experiments.mission_03.report_universal import save_results
+        source_hashes[str(args.time_config)]=time_sha
+        (out/"time_reference_used.json").write_text(
+            json.dumps({"input":time_cfg,"resolved":time_ref},
+                       ensure_ascii=False,indent=2),encoding="utf-8")
         source_hashes[str(args.regions)]=region_sha
         if args.program is not None:
             source_hashes[str(args.program)]=program_sha
@@ -535,7 +553,7 @@ def main():
             out=out,cfg=cfg,regions=region_index,source_hashes=source_hashes,
             state=sc_rec,target_rec=ground_rec,target_access=access_rec,
             adcs=adcs,data=data,power=power,director=director,
-            bin_path=bin_path,step=step)
+            bin_path=bin_path,step=step,time_reference=time_ref)
     else:
         result=_write_outputs(
             out,cfg,source_hashes,horizon_s,sc_rec,ground_rec,access_rec,
