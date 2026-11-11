@@ -108,7 +108,7 @@ def _case_check(case:str,summary:dict,baseline:dict|None=None)->dict:
                 "Two scheduled radio windows not recorded")
     elif case=="partial_link":
         _expect(summary["generated_bits"]>0 and
-                0<=summary["transmitted_bits"]<summary["generated_bits"],
+                0<summary["transmitted_bits"]<summary["generated_bits"],
                 "Low-bandwidth physical radio unexpectedly delivered full image")
     elif case=="slow_wheels":
         _expect(summary["physical_wheel_limit_rpm"]<100,
@@ -179,6 +179,7 @@ def run_suite(*,viz:bool=False,strict:bool=True)->Path:
                     {"start_s":0,"end_s":110},{"start_s":250,"end_s":450}]
             elif case=="partial_link":
                 camera["downlink"]["rate_bits_per_s"]=10000
+                camera["downlink"]["packet_bytes"]=500  # 0.5 s carries >=1 whole packet
             elif case=="slow_wheels":
                 wheels["rw"]["max_speed_rpm"]=15
             elif case=="refined_step":
