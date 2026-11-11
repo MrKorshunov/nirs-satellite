@@ -150,6 +150,11 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
         "coverage_union_bounded_by_region_area":all(
             0<=q["covered_area_m2"]<=q["region_area_m2"]+1
             for q in coverage["regions"].values()),
+        # Check AFTER the continuous native dynamics run, not inside a
+        # SWIG UpdateState callback; false captures are physical failures.
+        "all_actual_strip_lines_intersect_territory":all(
+            float(line.get("instant_footprint_overlap_m2",0.0))>0.
+            for line in director.lines),
         "basilisk_earth_longitude_matches_utc_gmst":(
             orientation_error_deg is None or orientation_error_deg<0.3),
     }
