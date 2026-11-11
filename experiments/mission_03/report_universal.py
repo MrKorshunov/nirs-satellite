@@ -53,7 +53,8 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
             raise AssertionError("Physical recorders are not synchronous")
     bore=np.asarray([true_boresight_error_deg(s,p,q,adcs.config["instrument_boresight_B"])
                      for s,p,q in zip(sigma,position,targets)])
-    ids=np.asarray([_task_at_sample(float(v),director.events,cfg["tasks"][0]["id"])
+    ids=np.asarray([_task_at_sample(float(v),director.events,
+                                   cfg["tasks"][0]["id"] if cfg["tasks"] else "")
                     for v in t],dtype=str)
     captures=np.flatnonzero(gen>1e-6)
     at_shot=bore[captures]
