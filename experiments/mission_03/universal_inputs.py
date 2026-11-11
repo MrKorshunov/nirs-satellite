@@ -18,8 +18,8 @@ def validate_program(cfg:dict,regions_cfg:dict,mission_cfg:dict,power_cfg:dict,s
     if cfg.get("execution_policy")!="provided_order_only":
         raise ValueError("Executor only supports externally provided fixed-order tasks, not optimization")
     tasks=cfg.get("tasks")
-    if not isinstance(tasks,list) or not 1<=len(tasks)<=64:
-        raise ValueError("Physical program must contain 1..64 tasks")
+    if not isinstance(tasks,list) or not 0<=len(tasks)<=64:
+        raise ValueError("Physical program must contain 0..64 tasks (zero = idle satellite)")
     if not isinstance(step,(float,int)) or not math.isfinite(step) or step<=0 or step>1:
         raise ValueError("Physical integration step must be positive <=1s")
     positive=["control_step_s","reserve_guard_wh","battery_reenable_hysteresis_wh"]
