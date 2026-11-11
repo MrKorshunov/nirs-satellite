@@ -136,8 +136,23 @@ def _case_check(case:str,summary:dict,baseline:dict|None=None)->dict:
     return checks
 
 
-def run_suite(*,viz:bool=False,strict:bool=True)->Path:
+SCENARIO_NAMES=(
+    "reference","repeat_reference","shift_epoch","idle","one","two","external_four",
+    "offtrack","low_battery","no_station","memory_backpressure",
+    "expired_window","repeated_downlink","partial_link",
+    "slow_wheels","refined_step",
+)
+
+
+def run_suite(*,viz:bool=False,strict:bool=True,cases=None)->Path:
     timestamp=datetime.now(timezone.utc).strftime("%y%m%d_%H%M%S")
+    selected=tuple(cases) if cases is not None else SCENARIO_NAMES
+    if not selected or len(set(selected))!=len(selected) or any(v not in SCENARIO_NAMES for v in selected):
+        raise ValueError("Unknown/duplicate/empty acceptance scenario selection")
+    if "repeat_reference" in selected and "reference" not in selected:
+        raise ValueError("repeat_reference requires reference in the same run")
+    if "repeat_reference" in selected and selected.index("repeat_reference")<selected.index("reference"):
+        raise ValueError("Run reference before repeat_reference")
     output=ROOT/"results"/("mission05_acceptance_"+timestamp)
     output.mkdir(parents=True,exist_ok=False)
     original=_load("mission_mixed_demo")
@@ -149,12 +164,7 @@ def run_suite(*,viz:bool=False,strict:bool=True)->Path:
     reference=None
     with tempfile.TemporaryDirectory(prefix="mission05_cases_") as tmp:
         base=Path(tmp)
-        for index,case in enumerate((
-            "reference","repeat_reference","shift_epoch","idle","one","two","external_four",
-            "offtrack","low_battery","no_station","memory_backpressure",
-            "expired_window","repeated_downlink","partial_link",
-            "slow_wheels","refined_step",
-        )):
+        for index,case in enumerate(selected):
             cfg=copy.deepcopy(original)
             reg=copy.deepcopy(territories)
             camera=copy.deepcopy(hw)
@@ -292,8 +302,10 @@ def run_suite(*,viz:bool=False,strict:bool=True)->Path:
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--viz",action="store_true")
+    parser.add_argument("--cases",nargs="+",choices=SCENARIO_NAMES,
+                        help="Run selected physical scenarios first; omit for the full 16-case acceptance")
     args=parser.parse_args()
-    report=run_suite(viz=args.viz,strict=True)
+    report=run_suite(viz=args.viz,strict=True,cases=args.cases)
     print("ACCEPTANCE SUCCESS",report,flush=True)
 
 if __name__=="__main__":
