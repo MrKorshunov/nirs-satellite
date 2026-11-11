@@ -18,8 +18,8 @@ def _xy(lat:float,lon:float,lat0:float,lon0:float,radius:float)->tuple[float,flo
 def validate_regions(cfg:dict)->dict[str,dict]:
     if not str(cfg.get("provenance","")).startswith("SYNTHETIC"):
         raise ValueError("Region source must state synthetic provenance")
-    if cfg.get("frame")!="planet_fixed_spherical_lat_lon_deg":
-        raise ValueError("Expected rotating spherical Earth-fixed lat/lon regions")
+    if cfg.get("frame") not in ("planet_fixed_spherical_lat_lon_deg","wgs84_geodetic_deg"):
+        raise ValueError("Expected Earth-fixed spherical or WGS84 geodetic lat/lon region frame")
     regions=cfg.get("regions")
     if not isinstance(regions,list) or not regions:
         raise ValueError("At least one bounded Earth-fixed region is required")
@@ -80,7 +80,7 @@ def swath_intersects_region(lat:float,lon:float,altitude_m:float,fov_deg:float,
     return distance<=width*0.5,distance,width
 
 def ground_point_from_position(
-    position_N_m,rotation_J2000_to_Pfix,radius_m
+    position_N_m,rotation_J2000_to_Pfix,radius_m,geodetic=False
 )->tuple[float,float,float]:
     """Spherical subsatellite footpoint using actual Basilisk planet DCM."""
     if len(position_N_m)!=3:
@@ -94,6 +94,9 @@ def ground_point_from_position(
     mag=math.sqrt(sum(z*z for z in p))
     if mag<=radius_m:
         raise ValueError("Spacecraft below spherical Earth reference")
+    if geodetic:
+        from experiments.mission_03.geo_time import ecef_to_geodetic
+        return ecef_to_geodetic(p)
     latitude=math.degrees(math.asin(max(-1.,min(1.,p[2]/mag))))
     longitude=_wrap(math.degrees(math.atan2(p[1],p[0])))
     return latitude,longitude,mag-radius_m
