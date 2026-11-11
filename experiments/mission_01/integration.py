@@ -54,10 +54,10 @@ class MissionComponents:
 
 def attach(sim, task: str, spacecraft, planet_msg, earth_radius_m: float,
            target_access_msg, pointing_guidance_msg, step_s: float,
-           profile: str = "nominal") -> MissionComponents:
+           profile: str = "nominal", config_path_override: Path | None = None) -> MissionComponents:
     if profile not in CONFIG_BY_PROFILE:
         raise ValueError("Unknown synthetic radio profile")
-    config_path = CONFIG_BY_PROFILE[profile]
+    config_path = Path(config_path_override) if config_path_override else CONFIG_BY_PROFILE[profile]
     raw = config_path.read_bytes()
     cfg = json.loads(raw)
     validate_config(cfg, step_s)
