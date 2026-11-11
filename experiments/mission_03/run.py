@@ -427,7 +427,11 @@ def main():
     sc.hub.r_CN_NInit,sc.hub.v_CN_NInit=orbitalMotion.elem2rv(float(earth.mu),el)
     sim.AddModelToTask(task,sc,ModelPriority=150)
 
-    first=cfg["tasks"][0]
+    first=cfg["tasks"][0] if cfg["tasks"] else {
+        "lat_deg":geo["target"]["latitude_deg"],
+        "lon_deg":geo["target"]["longitude_deg"],
+        "altitude_m":0.,"minimum_elevation_deg":0.,
+        "maximum_range_m":-1.}
     if universal and first.get("kind","point")=="strip":
         polygon=region_index[first["region_id"]]["polygon_lat_lon_deg"]
         first={"lat_deg":sum(p[0] for p in polygon)/len(polygon),
@@ -454,7 +458,8 @@ def main():
                 data.storage_model.addPartition(job["id"])
         data.transmitter_model.numBuffers=len(cfg["tasks"])+(
             0 if any(j["id"]==first_partition for j in cfg["tasks"]) else 1)
-        data.instrument_model.nodeDataName=cfg["tasks"][0]["id"]
+        if cfg["tasks"]:
+            data.instrument_model.nodeDataName=cfg["tasks"][0]["id"]
     else:
         data.storage_model.addPartition(cfg["tasks"][1]["id"])
         data.transmitter_model.numBuffers=2
