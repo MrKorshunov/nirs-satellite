@@ -38,6 +38,7 @@ from experiments.mission_01.integration import attach as attach_datachain
 from experiments.power_01.integration import attach as attach_power
 from experiments.power_01.analysis import analyse_run as analyse_power
 from experiments.mission_03.logic import validate, permitted, stage_for_sample
+from experiments.mission_03.epoch import epoch_metadata
 from nirs_satellite.input_paths import input_path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -332,11 +333,15 @@ def main():
         supplied,program_sha=_read(args.program)
         if supplied.get("schema_version")!=1:
             parser.error("Unknown execution-program schema_version; expected 1")
+        if supplied.get("epoch_utc") is not None and supplied["epoch_utc"]!=cfg.get("epoch_utc"):
+            parser.error("Program UTC epoch must match physical executor epoch_utc")
         if supplied.get("execution_policy")!="provided_order_only":
             parser.error("Program must be fixed externally provided order, not an optimizer")
         cfg={**cfg,"tasks":supplied["tasks"],
              "execution_policy":supplied["execution_policy"],
              "provenance":supplied["provenance"]}
+        if "downlink_windows" in supplied:
+            cfg["downlink_windows"]=supplied["downlink_windows"]
     region_cfg,region_sha=_read(args.regions)
     universal=(args.program is not None or cfg.get("execution_policy")=="provided_order_only"
                or len(cfg["tasks"])!=2 or any(
@@ -347,6 +352,7 @@ def main():
     power_cfg,power_sha=_read(input_path("power"))
     mission_cfg,mission_sha=_read(input_path("camera_storage_radio"))
     step=float(mission_cfg["capture"]["assumed_exposure_duration_s"])
+    time_reference=epoch_metadata(cfg) if universal else None
     if universal:
         from experiments.mission_03.universal_inputs import validate_program
         region_index=validate_program(cfg,region_cfg,mission_cfg,power_cfg,step)
@@ -374,8 +380,9 @@ def main():
         parser.error("Existing result directory: choose a new --output-name")
     out.mkdir(parents=True)
 
-    # Original Ground01 Earth + orbit composition is kept exactly: same
-    # synthetic epoch, same planet orientation for geometry and Vizard.
+    # Same validated Basilisk Earth/orbit composition, but universal missions
+    # can now anchor initial sidereal angle to an explicit UTC+UT1 epoch.
+    # This is approximate GMST, NOT a full ITRF/EOP or precession solution.
     sim=SimulationBaseClass.SimBaseClass()
     process=sim.CreateNewProcess("mission03PhysicalProcess")
     task="mission03PhysicalTask"
@@ -392,7 +399,9 @@ def main():
     e=geo["earth"]
     eph.rightAscension=planetEphemeris.DoubleVector([math.radians(e["rotational_pole_ra_deg"])])
     eph.declination=planetEphemeris.DoubleVector([math.radians(e["rotational_pole_dec_deg"])])
-    eph.lst0=planetEphemeris.DoubleVector([math.radians(e["initial_sidereal_angle_deg"])])
+    eph.lst0=planetEphemeris.DoubleVector([math.radians(
+        time_reference["gmst_start_deg"] if time_reference else
+        e["initial_sidereal_angle_deg"])])
     eph.rotRate=planetEphemeris.DoubleVector([float(e["rotation_rate_rad_s"])])
     sim.AddModelToTask(task,eph,ModelPriority=200)
 
@@ -535,7 +544,7 @@ def main():
             out=out,cfg=cfg,regions=region_index,source_hashes=source_hashes,
             state=sc_rec,target_rec=ground_rec,target_access=access_rec,
             adcs=adcs,data=data,power=power,director=director,
-            bin_path=bin_path,step=step)
+            bin_path=bin_path,step=step,epoch_info=time_reference)
     else:
         result=_write_outputs(
             out,cfg,source_hashes,horizon_s,sc_rec,ground_rec,access_rec,
@@ -551,8 +560,11 @@ def main():
         "checks_passed":result["checks_passed"],
         "vizard":result["vizard_file"],
     },ensure_ascii=False),flush=True)
-    if (args.require_two_captures or args.require_all_complete) and not result["checks_passed"]:
+    if args.require_two_captures and not result["checks_passed"]:
         raise SystemExit(f"MISSION03 ACCEPTANCE FAILED: {result['checks']}")
+    if args.require_all_complete and (not result["checks_passed"] or
+                                      not result.get("mission_complete",True)):
+        raise SystemExit(f"MISSION03 MISSION-INCOMPLETE: {result['checks']}")
 
 
 if __name__=="__main__":
