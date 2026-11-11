@@ -11,6 +11,9 @@ from pathlib import Path
 from Basilisk.utilities import macros
 from experiments.adcs_01.kinematics import true_boresight_error_deg
 from experiments.power_01.analysis import analyse_run as analyse_power
+from experiments.mission_03.timeline import schedule_task_record,radio_window_open
+from experiments.mission_03.epoch import date_at
+from experiments.mission_03.coverage import polygon_coverage
 
 def _task_at_sample(t:float,events:list,first:str)->str:
     result=first
@@ -21,7 +24,7 @@ def _task_at_sample(t:float,events:list,first:str)->str:
 
 def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
                  state,target_rec,target_access,adcs,data,power,director,
-                 bin_path,step:float):
+                 bin_path,step:float,epoch_info:dict|None=None):
     t=np.asarray(data.instrument_data_rec.times(),dtype=float)*1e-9
     position=np.asarray(state.r_BN_N,dtype=float)
     sigma=np.asarray(state.sigma_BN,dtype=float)
@@ -63,8 +66,13 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
         size=(int(job["sample_bytes"]) if kind=="strip" else
               int(job.get("product_bytes",data.config["capture"]["product_bytes"])))
         expected_bits+=count*size*8
+        planned=schedule_task_record(job,director.capture_times[name],
+                                     director.task_status[name],
+                                     director.task_reason[name])
         details.append({
             "id":name,"kind":kind,"capture_count":count,
+            **planned,
+            "blocker_samples":director.blocked[name],
             "status":director.task_status[name],
             "capture_times_s":director.capture_times[name],
             "generated_bits":count*size*8,
@@ -80,6 +88,32 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
     max_wheel=float(np.max(np.abs(wheels)))
     limit=float(adcs.config["rw"]["max_speed_rpm"])
     limit_storage=8*float(data.config["storage"]["capacity_bytes"])
+    # Plan and actual transmission: fixed-order schedule does not choose
+    # windows. Out-of-plan downlink is a physical-policy validation failure.
+    planned_tx=np.asarray([radio_window_open(cfg,float(v)) for v in t],dtype=bool)
+    downlink_outside=bool(np.any((tx<-1e-7)&(~planned_tx)))
+    planned_radio=[]
+    for win in cfg.get("downlink_windows",[{"start_s":0.0,"end_s":float(t[-1])+step}]):
+        inside=(t>=float(win["start_s"]))&(t<float(win["end_s"]))
+        sending=(tx<0)&inside
+        planned_radio.append({
+            "planned_start_s":float(win["start_s"]),
+            "planned_end_s":float(win["end_s"]),
+            "actual_first_tx_s":float(t[np.flatnonzero(sending)[0]]) if np.any(sending) else None,
+            "actual_last_tx_s":float(t[np.flatnonzero(sending)[-1]]) if np.any(sending) else None,
+            "actual_sent_bits":float(np.sum((-tx[1:])*np.diff(t)*(inside[1:]))),
+            "actual_tx_samples":int(np.count_nonzero(sending)),
+        })
+    coverage=polygon_coverage(regions,cfg["tasks"],director.lines,director.ground_track,step)
+    coverage_geojson=coverage.pop("coverage_geojson")
+    (out/"mission05_footprints.geojson").write_text(
+        json.dumps(coverage_geojson,ensure_ascii=False,indent=2),encoding="utf-8")
+    (out/"mission05_coverage.json").write_text(
+        json.dumps(coverage,ensure_ascii=False,indent=2),encoding="utf-8")
+    for detail in details:
+        if detail["kind"]=="strip":
+            detail.update(coverage["task_coverage"].get(detail["id"],{}))
+    mission_complete=all(v["status"]=="completed" for v in details)
     checks={
         "physical_generated_bytes_match_event_log":abs(expected_bits-bits_in)<1.0,
         "actual_boresight_for_every_line":bool(np.all(at_shot<=maximum+0.15)),
@@ -92,34 +126,46 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
              np.max(battery)<=float(power.config["battery_capacity_wh"])+1e-3),
         "battery_reserve_not_violated":bool(np.min(battery)>=float(cfg["reserve_wh"])-1e-3),
         "nonnegative_image_rate_and_negative_tx":bool(np.all(gen>=-1e-8) and np.all(tx<=1e-8)),
-        "all_tasks_completed":all(x["status"]=="completed" for x in details),
+        "radio_transmits_only_inside_planned_windows":not downlink_outside,
+        "coverage_union_bounded_by_region_area":all(
+            0<=q["covered_area_m2"]<=q["region_area_m2"]+1
+            for q in coverage["regions"].values()),
     }
     output=out
     output.mkdir(parents=True,exist_ok=True)
     with (output/"mission03_states.csv").open("w",newline="",encoding="utf-8") as f:
         w=csv.writer(f)
-        w.writerow(["time_s","task_id","target_access","station_access",
+        w.writerow(["time_s","utc_iso8601","task_id","target_access","station_access",
                     "actual_boresight_error_deg","generated_rate_bps",
                     "downlink_rate_bps","stored_bits","battery_wh",
                     "panel_w","rw1_rpm","rw2_rpm","rw3_rpm"])
         for i in range(n):
-            w.writerow([float(t[i]),str(ids[i]),int(access[i]),int(station[i]),
+            w.writerow([float(t[i]),date_at(epoch_info["epoch_utc"],t[i]) if epoch_info else "",
+                        str(ids[i]),int(access[i]),int(station[i]),
                         float(bore[i]),float(gen[i]),float(tx[i]),float(storage[i]),
                         float(battery[i]),float(panel[i]),*map(float,wheels[i])])
     with (output/"mission03_strip_footprints.csv").open("w",newline="",encoding="utf-8") as f:
-        columns=["t_s","task","lat_deg","lon_deg","altitude_m",
+        columns=["t_s","utc_iso8601","task","lat_deg","lon_deg","altitude_m",
                  "region_signed_distance_m","swath_width_m","along_track_m",
                  "approx_area_m2","data_bits"]
         writer=csv.DictWriter(f,fieldnames=columns)
         writer.writeheader()
-        writer.writerows(director.lines)
+        for line in director.lines:
+            writer.writerow({**line,"utc_iso8601":date_at(epoch_info["epoch_utc"],line["t_s"])
+                             if epoch_info else ""})
     with (output/"mission03_groundtrack.csv").open("w",newline="",encoding="utf-8") as f:
-        columns=["t_s","lat_deg","lon_deg","altitude_m","task"]
+        columns=["t_s","utc_iso8601","lat_deg","lon_deg","altitude_m","task"]
         w=csv.DictWriter(f,fieldnames=columns)
         w.writeheader()
-        w.writerows(director.ground_track)
+        for item in director.ground_track:
+            w.writerow({**item,"utc_iso8601":date_at(epoch_info["epoch_utc"],item["t_s"])
+                        if epoch_info else ""})
+    events_with_utc=[
+        {**ev,"utc_iso8601":date_at(epoch_info["epoch_utc"],ev["t_s"])
+         if epoch_info else None} for ev in director.events
+    ]
     (output/"mission03_events.json").write_text(
-        json.dumps(director.events,ensure_ascii=False,indent=2),encoding="utf-8")
+        json.dumps(events_with_utc,ensure_ascii=False,indent=2),encoding="utf-8")
     power_report=analyse_power(times=t,components=power,output=output)
     power_report["limitations"]=[
         "Synthetic fixed Sun direction, body-fixed panel and discrete power mode commands",
@@ -149,6 +195,12 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
         "tasks":details,
         "task_count":len(details),
         "completed_tasks":sum(v["status"]=="completed" for v in details),
+        "mission_complete":mission_complete,
+        "mission_outcome":"complete" if mission_complete else "partially_completed_or_missed",
+        "epoch":epoch_info,
+        "utc_end":date_at(epoch_info["epoch_utc"],t[-1]) if epoch_info else None,
+        "planned_downlink_windows":planned_radio,
+        "coverage":coverage,
         "physical_target_switch_count":len(director.switch_times),
         "sample_count":n,
         "step_s":float(step),
@@ -182,7 +234,9 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
             "Only an externally provided fixed-order program is executed; no optimization or automatic scheduling",
             "Physical pointing, wheel dynamics, storage, transmitter access and battery power states are integrated",
             "SimpleNav is ideal; link is fixed-rate and has no receiver ACK or bit-error model",
-            "No WGS84 real epoch UTC, J2, orbit perturbations, terrain, cloud cover or detailed optics",
+            "UTC epoch + approximate GMST and WGS84 ground footprint; not high-precision EOP/ITRF or real satellite ephemeris",
+            "WGS84 equal-area geometric swath-union coverage, not actual optical pixels or verified image quality",
+            "Two-body orbit, no J2/drag, terrain, clouds or detailed optical ray tracing",
         ],
     }
     (output/"mission03_summary.json").write_text(
