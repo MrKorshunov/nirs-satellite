@@ -22,6 +22,9 @@ FILES: dict[str, tuple[str, str]] = {
     "mission_execution": ("physical/mission_execution.json", "Физическое переключение двух целей и резерв заряда"),
     "mission_mixed_demo": ("physical/mission_mixed_demo.json", "Универсальная программа: точечная и полосная съёмки"),
     "territories": ("physical/territories.json", "Территории наблюдений в координатах вращающейся Земли"),
+    "time_reference": ("physical/time_reference.json", "Время: синтетический отсчёт или приближённая эпоха UTC и WGS84"),
+    "time_reference_utc_demo": ("physical/time_reference_utc_demo.json", "Пример UTC-эпохи и приближённого GMST (не высокоточная орбита)"),
+    "scheduled_program_example": ("physical/scheduled_program_example.json", "Пример расписания с плановыми интервалами съёмки"),
     "adcs_ideal_legacy": ("physical/adcs_ideal_legacy.json", "Исторический ADCS без маховиков — только диагностика"),
     "payload_demo_legacy": ("physical/payload_demo_legacy.json", "Историческая проверка прибора"),
 }
