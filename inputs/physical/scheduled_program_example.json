@@ -1,0 +1,49 @@
+{
+  "scenario_id": "mission05_external_schedule_example",
+  "schema_version": 1,
+  "provenance": "SYNTHETIC externally supplied timed schedule; NO optimizer",
+  "execution_policy": "provided_order_only",
+  "tasks": [
+    {
+      "id": "TARGET_01_IMAGE",
+      "kind": "point",
+      "lat_deg": 14,
+      "lon_deg": 43,
+      "altitude_m": 0,
+      "minimum_elevation_deg": 10,
+      "maximum_range_m": -1,
+      "release_s": 0,
+      "planned_start_s": 0,
+      "planned_end_s": 90,
+      "deadline_s": 720
+    },
+    {
+      "id": "TARGET_02_IMAGE",
+      "kind": "point",
+      "lat_deg": 14.7,
+      "lon_deg": 43.35,
+      "altitude_m": 0,
+      "minimum_elevation_deg": 10,
+      "maximum_range_m": -1,
+      "release_s": 0,
+      "planned_start_s": 90,
+      "planned_end_s": 150,
+      "deadline_s": 720
+    },
+    {
+      "id": "CORRIDOR_ALPHA_SWATH",
+      "kind": "strip",
+      "region_id": "CORRIDOR_ALPHA",
+      "look_direction": "nadir",
+      "fov_cross_track_deg": 15,
+      "sample_bytes": 5000,
+      "min_samples": 12,
+      "max_samples": 12,
+      "release_s": 0,
+      "planned_start_s": 150,
+      "planned_end_s": 620,
+      "deadline_s": 720
+    }
+  ],
+  "notes": "Example desired observation windows: reports distinguish intended from actual time; not optimizing start times."
+}
