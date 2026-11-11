@@ -94,7 +94,7 @@ def _start_vizard_recording(sim, process, task, spacecraft, output_name, cadence
 
 
 def _draw_vizard_markers(sim, process, task, sc, earth, data, targets,
-                         earth_radius, output_name, cadence):
+                         earth_radius, output_name, cadence, regions=None):
     """Stable target/ground-station Vizard profile without native HUD panels."""
     bin_path,viz=_start_vizard_recording(sim,process,task,sc,
                                         output_name,cadence)
@@ -109,6 +109,28 @@ def _draw_vizard_markers(sim, process, task, sc, earth, data, targets,
             label="OBSERVATION TARGET "+str(index+1),markerScale=15.0,
             color=[255,0,255,255] if index==0 else [255,160,30,255],
             isHidden=False,fieldOfView=math.radians(160),range=2_000_000.0)
+    # Vertices are STATIC boundary guides on the rotating spherical Earth.
+    # The polygon is not a rendered texture or ground-image product.
+    if regions:
+        seen=set()
+        for site in targets:
+            if site.get("kind","point")!="strip":
+                continue
+            region_id=site["region_id"]
+            if region_id in seen:
+                continue
+            seen.add(region_id)
+            ring=regions[region_id]["polygon_lat_lon_deg"]
+            for j,(lat,lon) in enumerate(ring):
+                pos=_ground_r_fixed({"lat_deg":lat,"lon_deg":lon,
+                                      "altitude_m":0},earth_radius)
+                vizSupport.addLocation(
+                    viz,stationName=f"{region_id}_vertex_{j+1}",
+                    parentBodyName=parent,r_GP_P=pos,
+                    gHat_P=pos/np.linalg.norm(pos),
+                    label=f"{region_id} boundary {j+1}",markerScale=6.0,
+                    color=[50,175,255,255],isHidden=False,
+                    fieldOfView=math.radians(160),range=2_000_000.)
     st=data.config["downlink"]["ground_station"]
     p=_ground_r_fixed({"lat_deg":st["latitude_deg"],
                        "lon_deg":st["longitude_deg"],
@@ -442,12 +464,14 @@ def main():
                 marker_sites.append({"id":job["id"],
                     "lat_deg":sum(x[0] for x in ring)/len(ring),
                     "lon_deg":sum(x[1] for x in ring)/len(ring),
-                    "altitude_m":0.,"kind":"strip"})
+                    "altitude_m":0.,"kind":"strip",
+                    "region_id":job["region_id"]})
             else:
                 marker_sites.append(job)
         bin_path,viz=_draw_vizard_markers(sim,process,task,sc,earth,data,marker_sites,
                                            float(orbit["reference_radius_m"]),
-                                           args.output_name,float(args.viz_step_s))
+                                           args.output_name,float(args.viz_step_s),
+                                           regions=region_index if universal else None)
     print(f"MISSION 03 physical dynamics: {horizon_s:.1f}s at {step}s; "
           f"{len(cfg['tasks'])} sequential physical tasks; "
           f"battery gate every {control_step:g}s; "
