@@ -1,0 +1,12 @@
+{
+  "scenario_id": "mission05_default_synthetic_time",
+  "provenance": "SYNTHETIC backwards-compatible time reference; see UTC mode documentation",
+  "time_frame_mode": "synthetic",
+  "epoch_utc": null,
+  "ut1_minus_utc_s": 0,
+  "notes": [
+    "Edit time_frame_mode to utc_approx_wgs84 and provide ISO-8601 epoch_utc to anchor GMST to an approximate UTC time",
+    "Use regions with frame wgs84_geodetic_deg for dated geographic coverage",
+    "UT1-UTC from authoritative Earth orientation parameters, not a universal constant"
+  ]
+}
