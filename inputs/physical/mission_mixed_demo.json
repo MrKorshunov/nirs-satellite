@@ -1,0 +1,55 @@
+{
+  "scenario_id": "mission04_point_and_strip_physical_demo",
+  "provenance": "SYNTHETIC validated physical execution of fixed-order point + nadir along-track strip tasks; no optimal scheduling",
+  "control_step_s": 5,
+  "default_duration_hours": 0.2,
+  "reserve_wh": 5,
+  "reserve_guard_wh": 0.15,
+  "battery_reenable_hysteresis_wh": 0.5,
+  "execution_policy": "provided_order_only",
+  "tasks": [
+    {
+      "id": "TARGET_01_IMAGE",
+      "kind": "point",
+      "lat_deg": 14,
+      "lon_deg": 43,
+      "altitude_m": 0,
+      "minimum_elevation_deg": 10,
+      "maximum_range_m": -1,
+      "release_s": 0,
+      "deadline_s": 720
+    },
+    {
+      "id": "TARGET_02_IMAGE",
+      "kind": "point",
+      "lat_deg": 14.7,
+      "lon_deg": 43.35,
+      "altitude_m": 0,
+      "minimum_elevation_deg": 10,
+      "maximum_range_m": -1,
+      "release_s": 0,
+      "deadline_s": 720
+    },
+    {
+      "id": "CORRIDOR_ALPHA_SWATH",
+      "kind": "strip",
+      "region_id": "CORRIDOR_ALPHA",
+      "look_direction": "nadir",
+      "fov_cross_track_deg": 15,
+      "sample_bytes": 5000,
+      "min_samples": 12,
+      "max_samples": 12,
+      "release_s": 0,
+      "deadline_s": 720
+    }
+  ],
+  "model_limitations": [
+    "Order is fixed, not optimized; future scheduling algorithms submit task programs via --program",
+    "Strip lines are synthetic data bytes per physical timestep, not rendered optical pixels",
+    "Footprint represented by spherical subsatellite point and approximate nadir FOV half-width on a local tangent plane",
+    "Strip coverage telemetry is sampled centerline and width, not exact clipped polygon area",
+    "No cloud cover, terrain, imaging smear or radiometric correction",
+    "Earth rotation is synthetic, without real epoch UTC; polygon regions are Earth-fixed latitude/longitude",
+    "Physical Basilisk reaction wheels, antenna/station geometry, storage data stream and eclipse/solar/battery integrated together"
+  ]
+}
