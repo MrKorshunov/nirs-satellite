@@ -42,6 +42,7 @@ class UniversalMissionDirector(sysModel.SysModel):
         self.capture_times={v["id"]:[] for v in self.tasks}
         self.task_status={v["id"]:"pending" for v in self.tasks}
         self.lines=[]
+        self.ground_track=[]
         self.switch_times=[]
         self.power_enabled_segments=[]
         self.allowed=True
@@ -103,6 +104,9 @@ class UniversalMissionDirector(sysModel.SysModel):
     def UpdateState(self,CurrentSimNanos):
         t=float(CurrentSimNanos)*macros.NANO2SEC
         job=self._task()
+        lat_trace,lon_trace,h_trace=self._subpoint()
+        self.ground_track.append({"t_s":t,"lat_deg":lat_trace,"lon_deg":lon_trace,
+                                  "altitude_m":h_trace,"task":job["id"] if job else None})
         baud=float(self.data.instrument_model.nodeDataOutMsg.read().baudRate)
 
         # Only a REAL Basilisk DataNodeUsage positive data impulse qualifies as
@@ -114,7 +118,7 @@ class UniversalMissionDirector(sysModel.SysModel):
             self.capture_times[name].append(t)
             kind=job.get("kind","point")
             if kind=="strip":
-                lat,lon,h=self._subpoint()
+                lat,lon,h=lat_trace,lon_trace,h_trace
                 region=self.regions[job["region_id"]]
                 overlap,distance,width=swath_intersects_region(
                     lat,lon,h,float(job["fov_cross_track_deg"]),
@@ -157,7 +161,7 @@ class UniversalMissionDirector(sysModel.SysModel):
         # Direct physical subpoint and footprint recomputed every dynamics tick.
         self._strip_eligible=False
         if job is not None and job.get("kind","point")=="strip":
-            lat,lon,h=self._subpoint()
+            lat,lon,h=lat_trace,lon_trace,h_trace
             self._last_subpoint=(lat,lon,h)
             self.target.specifyLocation(macros.D2R*lat,macros.D2R*lon,0.)
             reg=self.regions[job["region_id"]]
