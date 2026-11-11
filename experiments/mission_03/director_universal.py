@@ -177,9 +177,14 @@ class UniversalMissionDirector(sysModel.SysModel):
                     (previous["lat_deg"],previous["lon_deg"]) if previous else None,
                     (lat,lon),width,predict_next=False)
                 if measured_overlap<=0:
-                    raise AssertionError(
-                        "Actual Basilisk strip line lacks a modeled rectangular "
-                        "footprint intersection with the observed territory")
+                    # Never raise an exception through Basilisk's C++/SWIG
+                    # UpdateState callback: it may tear down the interpreter
+                    # with a Windows access violation. Preserve real camera
+                    # data and report an engineering verification failure
+                    # OUTSIDE ExecuteSimulation in report_universal.py.
+                    self.events.append({"t_s":t,
+                        "event":"strip_line_geometry_mismatch",
+                        "task":name,"actual_overlap_m2":measured_overlap})
                 length=0.0
                 if self._previous_strip_fix is not None and self._previous_strip_time is not None:
                     lag=t-self._previous_strip_time
