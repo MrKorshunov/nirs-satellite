@@ -36,7 +36,7 @@ def _region_projection(polygon):
 
 
 def _footprint_at(t:float,lat:float,lon:float,width_m:float,
-                  sample_dt_s:float,trajectory:list,project):
+                  sample_dt_s:float,trajectory:list,project,epochs:list[float]):
     from shapely.geometry import LineString
     if width_m<=0 or sample_dt_s<=0:
         raise ValueError("Invalid swath width or sample duration")
@@ -47,7 +47,6 @@ def _footprint_at(t:float,lat:float,lon:float,width_m:float,
     from bisect import bisect_left
     # O(log N) lookup instead of scanning the entire (potentially day-long)
     # ground track for every individual camera line.
-    epochs=[float(item["t_s"]) for item in trajectory]
     hi=min(len(epochs)-1,bisect_left(epochs,t))
     lo=max(0,hi-1)
     i=min((lo,hi),key=lambda j:abs(epochs[j]-t))
@@ -80,6 +79,9 @@ def polygon_coverage(regions:dict, tasks:list, lines:list, ground_track:list,
     """
     from shapely.ops import unary_union
     coverage={}
+    track_times=[float(row["t_s"]) for row in ground_track]
+    if not all(track_times[i]<track_times[i+1] for i in range(len(track_times)-1)):
+        raise ValueError("Basilisk ground track must be strictly time ordered")
     line_by_task=defaultdict(list)
     for line in lines:
         line_by_task[line["task"]].append(line)
@@ -100,7 +102,7 @@ def polygon_coverage(regions:dict, tasks:list, lines:list, ground_track:list,
         for row in source_lines:
             cell=_footprint_at(
                 float(row["t_s"]),float(row["lat_deg"]),float(row["lon_deg"]),
-                float(row["swath_width_m"]),sample_dt_s,ground_track,projector)
+                float(row["swath_width_m"]),sample_dt_s,ground_track,projector,track_times)
             clipped=cell.intersection(target)
             if not clipped.is_empty and clipped.area>0:
                 cells.append(clipped)
