@@ -12,9 +12,10 @@ from Basilisk.utilities import macros
 
 from experiments.mission_03.logic import permitted
 from experiments.mission_03.swath_geometry import (
-    ground_point_from_position, swath_intersects_region,
-    great_circle_distance_m,
+    ground_point_from_position, wgs84_subpoint_from_position,
+    swath_intersects_region, great_circle_distance_m,
 )
+from experiments.mission_03.timeline import task_window, radio_window_open, within_task_window
 
 class UniversalMissionDirector(sysModel.SysModel):
     def __init__(self, *, cfg, regions, data, target, power, spacecraft,
@@ -41,6 +42,8 @@ class UniversalMissionDirector(sysModel.SysModel):
         self.capture_count={v["id"]:0 for v in self.tasks}
         self.capture_times={v["id"]:[] for v in self.tasks}
         self.task_status={v["id"]:"pending" for v in self.tasks}
+        self.task_reason={v["id"]:None for v in self.tasks}
+        self.blocked={v["id"]:{} for v in self.tasks}
         self.lines=[]
         self.ground_track=[]
         self.switch_times=[]
@@ -90,8 +93,18 @@ class UniversalMissionDirector(sysModel.SysModel):
         if job is None:
             return
         self.task_status[job["id"]]=status
+        if status!="completed":
+            blockers=self.blocked[job["id"]]
+            ordered=sorted(blockers, key=lambda s:(-blockers[s],s))
+            self.task_reason[job["id"]]=(
+                "planned_window_elapsed" if status=="planned_window_missed" else
+                "deadline_elapsed" if status=="deadline_missed" else status)
+            if ordered:
+                self.task_reason[job["id"]]+="; main_observed_blocker="+ordered[0]
         self.events.append({"t_s":t,"event":"task_completed" if status=="completed" else "task_skipped",
                             "task":job["id"],"status":status,
+                            "reason":self.task_reason[job["id"]],
+                            "observed_blockers":self.blocked[job["id"]],
                             "samples":self.capture_count[job["id"]]})
         self.phase+=1
         self._assign_task(t)
@@ -99,6 +112,8 @@ class UniversalMissionDirector(sysModel.SysModel):
     def _subpoint(self):
         r=self.spacecraft.scStateOutMsg.read().r_BN_N
         rot=self.planet_msg.read().J20002Pfix
+        if self.cfg.get("epoch_utc"):
+            return wgs84_subpoint_from_position(r,rot)
         return ground_point_from_position(r,rot,self.radius)
 
     def UpdateState(self,CurrentSimNanos):
@@ -149,12 +164,17 @@ class UniversalMissionDirector(sysModel.SysModel):
                 self._advance(t,"completed")
 
         # Expired tasks are skipped, never represented as physical captures.
-        while (self._task() is not None
-               and t>float(self._task()["deadline_s"])):
+        while self._task() is not None:
             current=self._task()
+            _,planned_end=task_window(current)
+            if t<=min(planned_end,float(current["deadline_s"]))+1e-8:
+                break
             samples=self.capture_count[current["id"]]
             minimum=int(current.get("min_samples",1))
-            status="completed" if current.get("kind","point")=="strip" and samples>=minimum else "deadline_missed"
+            success=current.get("kind","point")=="strip" and samples>=minimum
+            status=("completed" if success else
+                    "planned_window_missed" if planned_end<float(current["deadline_s"])-1e-8
+                    else "deadline_missed")
             self._advance(t,status)
 
         job=self._task()
@@ -196,11 +216,25 @@ class UniversalMissionDirector(sysModel.SysModel):
         product_bytes=(int(job.get("sample_bytes",0)) if kind=="strip" else
                        int(job.get("product_bytes",self.default_product_bytes))
                        if job is not None else self.default_product_bytes)
-        imaging_allowed=(job is not None and self.allowed
-                         and t>=float(job.get("release_s",0))
-                         and t<=float(job["deadline_s"])
-                         and (kind!="strip" or self._strip_eligible)
-                         and storage_bits+8*product_bytes<=cap_bits+1)
+        # Commands issued after Basilisk module update apply to the NEXT
+        # physical sample. Test that next sample, not the old state timestamp.
+        next_camera_time=t+self.step
+        camera_window=job is not None and within_task_window(job,next_camera_time)
+        memory_ok=storage_bits+8*product_bytes<=cap_bits+1
+        geometry_ok=kind!="strip" or self._strip_eligible
+        imaging_allowed=(job is not None and self.allowed and camera_window
+                         and geometry_ok and memory_ok)
+        if job is not None:
+            reasons=[]
+            if not self.allowed: reasons.append("energy_reserve")
+            if not camera_window: reasons.append("outside_planned_camera_window")
+            if not memory_ok: reasons.append("onboard_memory_full")
+            if not geometry_ok: reasons.append("swath_outside_region")
+            if imaging_allowed and not bool(self.target.accessOutMsgs[0].read().hasAccess):
+                reasons.append("no_ground_target_access")
+            for reason in reasons:
+                counts=self.blocked[job["id"]]
+                counts[reason]=counts.get(reason,0)+1
         self.data.controller_model.attErrTolerance=(
             self.nominal_att_tol if imaging_allowed else -1.)
         self.data.controller_model.rateErrTolerance=(
@@ -211,7 +245,9 @@ class UniversalMissionDirector(sysModel.SysModel):
             # Re-arm each line. The actual Basilisk access/attitude gate still
             # decides whether the camera produces bytes this step.
             self.data.controller_model.imaged=0
-        radio_allowed=self.allowed and station_access and storage_bits>=packet_bits
+        radio_allowed=(self.allowed and station_access
+                       and radio_window_open(self.cfg,t+self.step)
+                       and storage_bits>=packet_bits)
         self.data.transmitter_model.nodeBaudRate=(
             -self.nominal_radio_bps if radio_allowed else 0.)
         self.power.imaging_sink.powerStatus=1 if imaging_allowed else 0
