@@ -103,6 +103,48 @@ jobs:
           assert r["physical_target_switch_count"]==3
           print("EXTERNAL 4-TASK JSON EXECUTED PHYSICALLY, NO OPTIMIZER")
           PY
+      - name: Negative test - ground track misses the region, no fabricated strip capture
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          regions=json.loads(Path("inputs/physical/territories.json").read_text())
+          regions["regions"][0]["polygon_lat_lon_deg"]=[
+              [-48,47],[-48,54],[-44,54],[-44,47]]
+          Path("territories_offtrack_ci.json").write_text(json.dumps(regions))
+          PY
+          python -m experiments.mission_03.run --config inputs/physical/mission_mixed_demo.json --regions territories_offtrack_ci.json --viz-mode off --duration-hours 0.2 --output-name mission04_offtrack
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("results/mission04_offtrack/mission03_summary.json").read_text())
+          assert [v["capture_count"] for v in r["tasks"]]==[1,1,0],r["tasks"]
+          assert r["strip_samples"]==0
+          print("OFF-TRACK REGION: zero invented strip images, PASSED")
+          PY
+      - name: Negative test - actual Basilisk battery disables all imaging
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          c=json.loads(Path("inputs/physical/mission_mixed_demo.json").read_text())
+          c["reserve_wh"]=64.95
+          c["reserve_guard_wh"]=5.
+          Path("battery_gate_mixed_ci.json").write_text(json.dumps(c))
+          PY
+          python -m experiments.mission_03.run --config battery_gate_mixed_ci.json --viz-mode off --duration-hours 0.2 --output-name mission04_low_energy
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("results/mission04_low_energy")
+          r=json.loads((p/"mission03_summary.json").read_text())
+          events=json.loads((p/"mission03_events.json").read_text())
+          assert sum(t["capture_count"] for t in r["tasks"])==0,r["tasks"]
+          assert r["generated_bits"]==0,r
+          assert r["power_disabled_segments"]>0
+          assert any(e["event"]=="power_safe_mode" for e in events)
+          print("PHYSICAL LOW-BATTERY CAMERA INHIBIT PASSED")
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
