@@ -25,8 +25,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - run: python -m pip install -r science_requirements.txt
       - run: python -m compileall -q experiments nirs_satellite tests
-      - run: python -m unittest tests.test_mission04_swath tests.test_launcher_core tests.test_input_registry -v
+      - run: python -m unittest tests.test_mission05_science tests.test_mission04_swath tests.test_launcher_core tests.test_input_registry -v
 
   mixed-physical-linux:
     needs: pure-program-and-footprint-tests
