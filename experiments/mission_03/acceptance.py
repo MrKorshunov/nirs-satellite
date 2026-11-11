@@ -34,7 +34,10 @@ def _expect(ok:bool,why:str)->None:
 
 def _case_check(case:str,summary:dict,baseline:dict|None=None)->dict:
     counts=[int(v["capture_count"]) for v in summary["tasks"]]
-    _expect(bool(summary["checks_passed"]),f"{case}: physical constraints violated: {summary['checks']}")
+    _expect(bool(summary["checks_passed"]),
+            f"{case}: physical constraints violated: {summary['checks']}; "
+            f"wheel_actual_rpm={summary['physical_wheel_max_rpm']}, "
+            f"wheel_limit_rpm={summary['physical_wheel_limit_rpm']}")
     _expect(abs(float(summary["conservation_error_bits"]))<160000,
             f"{case}: physical bit conservation")
     _expect(float(summary["max_stored_bits"])<=float(summary["memory_capacity_bits"])+1,
@@ -51,7 +54,11 @@ def _case_check(case:str,summary:dict,baseline:dict|None=None)->dict:
     if case=="reference":
         _expect(counts==[1,1,12],"Reference: two points + 12 strip lines not recorded")
         _expect(summary["mission_complete"],"Reference program incomplete")
-        _expect(checks["covered_area_m2"]>0,"Reference: no actual polygon overlap")
+        _expect(checks["covered_area_m2"]>0,
+                "Reference: real Basilisk lines existed but rectangular swath "
+                "cells never intersected the territory: "
+                f"counts={counts}, area={checks['covered_area_m2']} m2. "
+                "Inspect mission03_strip_footprints.csv and mission03_groundtrack.csv.")
         _expect(abs(float(summary["transmitted_bits"])-float(summary["generated_bits"]))<160000,
                 "Reference not downlinked")
         _expect(summary["epoch"] is not None,"Reference UTC epoch missing")
