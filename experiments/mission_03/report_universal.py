@@ -113,6 +113,11 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
         writer=csv.DictWriter(f,fieldnames=columns)
         writer.writeheader()
         writer.writerows(director.lines)
+    with (output/"mission03_groundtrack.csv").open("w",newline="",encoding="utf-8") as f:
+        columns=["t_s","lat_deg","lon_deg","altitude_m","task"]
+        w=csv.DictWriter(f,fieldnames=columns)
+        w.writeheader()
+        w.writerows(director.ground_track)
     (output/"mission03_events.json").write_text(
         json.dumps(director.events,ensure_ascii=False,indent=2),encoding="utf-8")
     power_report=analyse_power(times=t,components=power,output=output)
