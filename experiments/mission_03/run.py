@@ -330,6 +330,8 @@ def main():
     cfg,sha=_read(args.config)
     if args.program is not None:
         supplied,program_sha=_read(args.program)
+        if supplied.get("schema_version")!=1:
+            parser.error("Unknown execution-program schema_version; expected 1")
         if supplied.get("execution_policy")!="provided_order_only":
             parser.error("Program must be fixed externally provided order, not an optimizer")
         cfg={**cfg,"tasks":supplied["tasks"],
