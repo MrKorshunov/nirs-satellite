@@ -223,8 +223,12 @@ def run_suite(*,viz:bool=False,strict:bool=True)->Path:
             # Output names must be <=48 ASCII characters.
             if len(name)>48:
                 name=f"ms05_{timestamp}_{index:02d}"
+            # On Windows 0xC0000005 (3221225477) is a native access
+            # violation, not a failed physics assertion. Preserve the
+            # Python thread traceback when a SWIG/GEOS/PROJ callback crashes.
             cmd=[
-                sys.executable,"-m","experiments.mission_03.run",
+                sys.executable,"-X","faulthandler",
+                "-m","experiments.mission_03.run",
                 "--config",str(casefiles/"config.json"),
                 "--regions",str(casefiles/"regions.json"),
                 "--camera-config",str(casefiles/"camera.json"),
@@ -234,6 +238,13 @@ def run_suite(*,viz:bool=False,strict:bool=True)->Path:
                 "--output-name",name,
             ]
             p=subprocess.run(cmd,cwd=ROOT,capture_output=True,text=True,check=False)
+            if p.returncode and p.returncode%(2**32)==0xC0000005:
+                (output/(case+".native-crash.txt")).write_text(
+                    "Native Windows access violation 0xC0000005 detected. "
+                    "Faulthandler trace, if emitted, follows in "+case+
+                    ".log. Do NOT treat this as a failed satellite task; "
+                    "it is an interpreter/native-module crash.\n",
+                    encoding="utf-8")
             log=(output/(case+".log"))
             log.write_text(p.stdout+"\nSTDERR:\n"+p.stderr,encoding="utf-8")
             result_path=ROOT/"results"/name/"mission03_summary.json"
