@@ -11,6 +11,7 @@ import argparse
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -185,6 +186,8 @@ def run_suite(*,viz:bool=False,strict:bool=True)->Path:
             log=(output/(case+".log"))
             log.write_text(p.stdout+"\nSTDERR:\n"+p.stderr,encoding="utf-8")
             result_path=ROOT/"results"/name/"mission03_summary.json"
+            (ROOT/"results"/name).mkdir(parents=True,exist_ok=True)
+            shutil.copytree(casefiles,ROOT/"results"/name/"acceptance_inputs_used")
             try:
                 _expect(p.returncode==0,f"{case}: Basilisk exited with {p.returncode}; read {log}")
                 _expect(result_path.is_file(),f"{case}: no physical summary")
