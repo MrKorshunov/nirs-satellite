@@ -527,6 +527,8 @@ def main():
     sim.ConfigureStopTime(macros.sec2nano(horizon_s))
     sim.ExecuteSimulation()
     print("MISSION03: physical propagation finished; checking evidence",flush=True)
+    if universal:
+        director.finalize(horizon_s)
     events=director.events
     if universal:
         switch_t=director.switch_times[0] if director.switch_times else None
