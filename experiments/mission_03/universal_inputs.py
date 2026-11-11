@@ -68,6 +68,9 @@ def validate_program(cfg:dict,regions_cfg:dict,mission_cfg:dict,power_cfg:dict,s
                 raise ValueError("Unknown strip region: "+job["region_id"])
             if job.get("look_direction")!="nadir":
                 raise ValueError("First physical strip mode supports nadir only")
+            min_coverage=float(job.get("min_coverage_percent",0.0))
+            if not math.isfinite(min_coverage) or not 0<=min_coverage<=100:
+                raise ValueError("Requested strip coverage percent must be within [0,100]")
             fov=float(job["fov_cross_track_deg"])
             if not math.isfinite(fov) or not 0<fov<60:
                 raise ValueError("Strip FOV must be 0..60 degrees")
