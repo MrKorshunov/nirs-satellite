@@ -55,9 +55,21 @@ def _case_check(case:str,summary:dict,baseline:dict|None=None)->dict:
         _expect(abs(float(summary["transmitted_bits"])-float(summary["generated_bits"]))<160000,
                 "Reference not downlinked")
         _expect(summary["epoch"] is not None,"Reference UTC epoch missing")
+    elif case=="repeat_reference":
+        _expect(baseline is not None,"Missing previous reference scenario")
+        _expect(counts==[1,1,12] and summary["mission_complete"],
+                "Repeated reference outcome differs")
+        _expect(abs(float(summary["battery_final_wh"])-float(baseline["battery_final_wh"]))<1e-6,
+                "Battery time history not deterministic")
+        _expect(abs(float(summary["coverage"]["total_covered_area_m2"])-
+                    float(baseline["coverage"]["total_covered_area_m2"]))<1e-3,
+                "Coverage from same initial data not deterministic")
     elif case=="idle":
         _expect(summary["task_count"]==0 and sum(counts)==0 and summary["generated_bits"]==0,
                 "Idle satellite fabricated imaging data")
+    elif case=="two":
+        _expect(counts==[1,1] and summary["mission_complete"],
+                "Two-job universal physical executor failed")
     elif case=="one":
         _expect(counts==[1] and summary["mission_complete"],"Single point physical run failed")
     elif case=="external_four":
@@ -121,7 +133,7 @@ def run_suite(*,viz:bool=False,strict:bool=True)->Path:
     with tempfile.TemporaryDirectory(prefix="mission05_cases_") as tmp:
         base=Path(tmp)
         for index,case in enumerate((
-            "reference","idle","one","external_four",
+            "reference","repeat_reference","idle","one","two","external_four",
             "offtrack","low_battery","no_station","memory_backpressure",
             "expired_window","repeated_downlink","partial_link",
             "slow_wheels","refined_step",
@@ -132,6 +144,8 @@ def run_suite(*,viz:bool=False,strict:bool=True)->Path:
             wheels=copy.deepcopy(adcs)
             if case=="idle":
                 cfg["tasks"]=[]
+            elif case=="two":
+                cfg["tasks"]=cfg["tasks"][:2]
             elif case=="one":
                 cfg["tasks"]=cfg["tasks"][:1]
             elif case=="external_four":
