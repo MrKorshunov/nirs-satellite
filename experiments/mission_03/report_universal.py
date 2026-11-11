@@ -21,7 +21,7 @@ def _task_at_sample(t:float,events:list,first:str)->str:
 
 def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
                  state,target_rec,target_access,adcs,data,power,director,
-                 bin_path,step:float):
+                 bin_path,step:float,time_reference=None):
     t=np.asarray(data.instrument_data_rec.times(),dtype=float)*1e-9
     position=np.asarray(state.r_BN_N,dtype=float)
     sigma=np.asarray(state.sigma_BN,dtype=float)
@@ -56,6 +56,11 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
     at_shot=bore[captures]
     maximum=math.degrees(4*math.atan(float(data.config["capture"]["maximum_attitude_mrp_error"])))
     expected_bits=0.0
+    from experiments.mission_03.coverage import compute_coverage
+    from experiments.mission_03.geo_time import utc_at_elapsed
+    time_ref=time_reference or {"mode":"synthetic"}
+    dated=time_ref["mode"]=="utc_approx_wgs84"
+    coverage=compute_coverage(regions,director.lines,ellipsoid=dated)
     details=[]
     for job in cfg["tasks"]:
         name=job["id"];kind=job.get("kind","point")
@@ -70,6 +75,13 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
             "generated_bits":count*size*8,
             "region_id":job.get("region_id"),
             "required_samples":int(job.get("min_samples",1)),
+            "planned_start_s":float(job.get("planned_start_s",job.get("release_s",0))),
+            "planned_end_s":float(job.get("planned_end_s",job["deadline_s"])),
+            "actual_first_capture_s":float(director.capture_times[name][0]) if count else None,
+            "actual_last_capture_s":float(director.capture_times[name][-1]) if count else None,
+            "start_deviation_s":(float(director.capture_times[name][0])-
+                 float(job.get("planned_start_s",job.get("release_s",0)))) if count else None,
+            "coverage_percent":coverage[job["region_id"]]["coverage_percent"] if kind=="strip" else None,
             "approx_observed_length_m":sum(x["along_track_m"] for x in director.lines if x["task"]==name),
             "approx_swath_sample_area_m2":sum(x["approx_area_m2"] for x in director.lines if x["task"]==name),
         })
@@ -92,7 +104,9 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
              np.max(battery)<=float(power.config["battery_capacity_wh"])+1e-3),
         "battery_reserve_not_violated":bool(np.min(battery)>=float(cfg["reserve_wh"])-1e-3),
         "nonnegative_image_rate_and_negative_tx":bool(np.all(gen>=-1e-8) and np.all(tx<=1e-8)),
-        "all_tasks_completed":all(x["status"]=="completed" for x in details),
+        "task_statuses_known":all(x["status"] in (
+            "completed","horizon_unfinished","deadline_missed","planned_window_missed")
+            for x in details),
     }
     output=out
     output.mkdir(parents=True,exist_ok=True)
@@ -107,7 +121,8 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
                         float(bore[i]),float(gen[i]),float(tx[i]),float(storage[i]),
                         float(battery[i]),float(panel[i]),*map(float,wheels[i])])
     with (output/"mission03_strip_footprints.csv").open("w",newline="",encoding="utf-8") as f:
-        columns=["t_s","task","lat_deg","lon_deg","altitude_m",
+        columns=["t_s","task","task_region_id","lat_deg","lon_deg",
+                 "previous_lat_deg","previous_lon_deg","altitude_m",
                  "region_signed_distance_m","swath_width_m","along_track_m",
                  "approx_area_m2","data_bits"]
         writer=csv.DictWriter(f,fieldnames=columns)
@@ -118,6 +133,23 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
         w=csv.DictWriter(f,fieldnames=columns)
         w.writeheader()
         w.writerows(director.ground_track)
+    (output/"mission03_coverage.json").write_text(
+        json.dumps(coverage,ensure_ascii=False,indent=2),encoding="utf-8")
+    with (output/"mission03_planned_vs_actual.csv").open(
+             "w",newline="",encoding="utf-8") as f:
+        cols=["task_id","kind","planned_start_s","planned_end_s",
+              "actual_first_capture_s","actual_last_capture_s",
+              "start_deviation_s","status","capture_count","coverage_percent"]
+        w=csv.DictWriter(f,fieldnames=cols)
+        w.writeheader()
+        for item in details:
+            w.writerow({"task_id":item["id"],**{k:item.get(k) for k in cols if k!="task_id"}})
+    with (output/"mission03_actual_camera_operations.csv").open(
+             "w",newline="",encoding="utf-8") as f:
+        cols=["task","kind","operation","actual_start_s","actual_end_s","data_bits"]
+        w=csv.DictWriter(f,fieldnames=cols)
+        w.writeheader()
+        w.writerows(director.actual_operations)
     (output/"mission03_events.json").write_text(
         json.dumps(director.events,ensure_ascii=False,indent=2),encoding="utf-8")
     power_report=analyse_power(times=t,components=power,output=output)
@@ -149,6 +181,13 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
         "tasks":details,
         "task_count":len(details),
         "completed_tasks":sum(v["status"]=="completed" for v in details),
+        "all_tasks_completed":all(x["status"]=="completed" for x in details),
+        "mission_success":all(x["status"]=="completed" for x in details),
+        "execution_inhibitions":director.inhibited_counts,
+        "time_reference":time_ref,
+        "coverage_by_region":coverage,
+        "total_region_area_m2":sum(v["region_area_m2"] for v in coverage.values()),
+        "total_observed_region_area_m2":sum(v["covered_area_m2"] for v in coverage.values()),
         "physical_target_switch_count":len(director.switch_times),
         "sample_count":n,
         "step_s":float(step),
@@ -182,9 +221,21 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
             "Only an externally provided fixed-order program is executed; no optimization or automatic scheduling",
             "Physical pointing, wheel dynamics, storage, transmitter access and battery power states are integrated",
             "SimpleNav is ideal; link is fixed-rate and has no receiver ACK or bit-error model",
-            "No WGS84 real epoch UTC, J2, orbit perturbations, terrain, cloud cover or detailed optics",
+            "Optional UTC start anchor uses approximate GMST and WGS84 geodetic telemetry, NOT IERS/SPICE precision",
+            "No J2, drag, terrain, cloud cover, image pixels or complete attitude sensor uncertainties",
+            "Coverage is union of actually recorded synthetic strip-line rectangles on a finite grid, NOT exact pixel footprint",
         ],
     }
+    if dated:
+        result["first_sample_utc"]=utc_at_elapsed(time_ref["epoch_utc"],float(t[0]))
+        result["last_sample_utc"]=utc_at_elapsed(time_ref["epoch_utc"],float(t[-1]))
+        with (output/"mission03_groundtrack_utc.csv").open(
+                "w",newline="",encoding="utf-8") as f:
+            cols=["utc","t_s","lat_deg","lon_deg","altitude_m","task"]
+            w=csv.DictWriter(f,fieldnames=cols)
+            w.writeheader()
+            for row in director.ground_track:
+                w.writerow({"utc":utc_at_elapsed(time_ref["epoch_utc"],row["t_s"]),**row})
     (output/"mission03_summary.json").write_text(
         json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
     return result
