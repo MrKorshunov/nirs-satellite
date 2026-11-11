@@ -114,7 +114,17 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
     for detail in details:
         if detail["kind"]=="strip":
             detail.update(coverage["task_coverage"].get(detail["id"],{}))
-    mission_complete=all(v["status"]=="completed" for v in details)
+    # Physical 'samples generated' and mission objective 'area covered'
+    # are distinct. Do not claim a region is covered just because N images
+    # were acquired. Future optimizers can use the actual continuous KPI.
+    for job,detail in zip(cfg["tasks"],details):
+        goal=float(job.get("min_coverage_percent",0)) if detail["kind"]=="strip" else 0.
+        measured=float(detail.get("covered_percent",0))
+        detail["coverage_goal_percent"]=goal if detail["kind"]=="strip" else None
+        detail["coverage_goal_met"]=measured+1e-8>=goal if detail["kind"]=="strip" else None
+    mission_complete=all(
+        v["status"]=="completed" and
+        (v["coverage_goal_met"] is not False) for v in details)
     # Independently confirm the actual Basilisk Earth-fixed longitude at t=0
     # agrees with UTC+UT1-based GMST and inertial spacecraft longitude.
     # This checks the installed orientation rather than trusting a JSON label.
