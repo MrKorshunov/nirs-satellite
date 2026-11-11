@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: python -m pip install "bsk[all,examples]==2.12.2" -r science_requirements.txt
-      - name: Run all 15 deterministic physical scenarios in one test suite
+      - name: Run all 16 deterministic physical scenarios in one test suite
         run: python -m experiments.mission_03.acceptance
       - uses: actions/upload-artifact@v4
         if: always()
