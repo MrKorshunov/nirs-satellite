@@ -7,6 +7,8 @@ from __future__ import annotations
 import math,re
 from experiments.mission_03.logic import permitted
 from experiments.mission_03.swath_geometry import validate_regions
+from experiments.mission_03.timeline import validate_windows
+from experiments.mission_03.epoch import epoch_metadata
 
 ID=re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,31}$")
 
@@ -31,6 +33,9 @@ def validate_program(cfg:dict,regions_cfg:dict,mission_cfg:dict,power_cfg:dict,s
     reserve=float(cfg["reserve_wh"])
     if not math.isfinite(reserve) or reserve<0 or reserve>=float(power_cfg["battery_capacity_wh"]):
         raise ValueError("Energy reserve out of battery capacity")
+    validate_windows(cfg,step)
+    if "epoch_utc" in cfg:
+        epoch_metadata(cfg)
     index=validate_regions(regions_cfg)
     names=set()
     capacity=float(mission_cfg["storage"]["capacity_bytes"])
