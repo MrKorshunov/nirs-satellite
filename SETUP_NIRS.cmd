@@ -27,6 +27,9 @@ if errorlevel 1 goto fail
 echo Installing verified Basilisk and scenario dependencies...
 ".venv\Scripts\python.exe" -m pip install "bsk[all,examples]==2.12.2"
 if errorlevel 1 goto fail
+echo Installing WGS84 area and polygon-intersection dependencies...
+".venv\Scripts\python.exe" -m pip install -r science_requirements.txt
+if errorlevel 1 goto fail
 echo Checking Basilisk and the graphical interface...
 ".venv\Scripts\python.exe" -c "import Basilisk, tkinter; print('Basilisk + Tkinter OK')"
 if errorlevel 1 goto fail

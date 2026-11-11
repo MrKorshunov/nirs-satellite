@@ -90,8 +90,9 @@ def attach(
     target,
     orbit_cfg: dict,
     step_s: float,
+    config_path_override: Path | None = None,
 ) -> ADCSComponents:
-    raw = CONFIG.read_bytes()
+    raw = (Path(config_path_override) if config_path_override else CONFIG).read_bytes()
     config = json.loads(raw)
     validate_adcs_config(config, step_s)
     sha = hashlib.sha256(raw).hexdigest()

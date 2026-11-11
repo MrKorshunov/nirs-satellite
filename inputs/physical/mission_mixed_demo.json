@@ -17,7 +17,9 @@
       "minimum_elevation_deg": 10,
       "maximum_range_m": -1,
       "release_s": 0,
-      "deadline_s": 720
+      "deadline_s": 720,
+      "planned_start_s": 0,
+      "planned_end_s": 200
     },
     {
       "id": "TARGET_02_IMAGE",
@@ -28,7 +30,9 @@
       "minimum_elevation_deg": 10,
       "maximum_range_m": -1,
       "release_s": 0,
-      "deadline_s": 720
+      "deadline_s": 720,
+      "planned_start_s": 0,
+      "planned_end_s": 250
     },
     {
       "id": "CORRIDOR_ALPHA_SWATH",
@@ -40,16 +44,27 @@
       "min_samples": 12,
       "max_samples": 12,
       "release_s": 0,
-      "deadline_s": 720
+      "deadline_s": 720,
+      "planned_start_s": 100,
+      "planned_end_s": 700
     }
   ],
   "model_limitations": [
     "Order is fixed, not optimized; future scheduling algorithms submit task programs via --program",
     "Strip lines are synthetic data bytes per physical timestep, not rendered optical pixels",
     "Footprint represented by spherical subsatellite point and approximate nadir FOV half-width on a local tangent plane",
-    "Strip coverage telemetry is sampled centerline and width, not exact clipped polygon area",
+    "Strip geometric coverage is area-preserving WGS84 polygon-clipped union of approximate nadir rectangle cells, not actual camera pixels",
     "No cloud cover, terrain, imaging smear or radiometric correction",
-    "Earth rotation is synthetic, without real epoch UTC; polygon regions are Earth-fixed latitude/longitude",
+    "UTC epoch anchored using approximate GMST; lacks UT1/EOP if dut1=0, frame precession/nutation/polar motion",
     "Physical Basilisk reaction wheels, antenna/station geometry, storage data stream and eclipse/solar/battery integrated together"
+  ],
+  "epoch_utc": "2026-11-11T20:35:59.964Z",
+  "dut1_seconds": 0,
+  "earth_orientation_model": "approx_GMST_IAU1982_UTC_and_DUT1",
+  "downlink_windows": [
+    {
+      "start_s": 0,
+      "end_s": 720
+    }
   ]
 }

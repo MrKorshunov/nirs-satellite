@@ -1,0 +1,80 @@
+name: Mission05 scientific readiness - physical schedule, WGS84, UTC and stress acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/mission_03/**'
+      - 'experiments/mission_01/integration.py'
+      - 'experiments/adcs_02/integration.py'
+      - 'inputs/**'
+      - 'science_requirements.txt'
+      - 'tests/test_mission05_science.py'
+      - '.github/workflows/mission05.yml'
+      - 'CHECK_RESEARCH_READY.cmd'
+  push:
+    branches: [main]
+
+jobs:
+  numerical-geo-time-and-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r science_requirements.txt
+      - name: Compile independent modules
+        run: python -m compileall -q experiments nirs_satellite tests
+      - name: Test UTC/UT1, valid/invalid plans, overlap-safe polygon coverage
+        run: python -m unittest tests.test_mission05_science tests.test_mission04_swath -v
+
+  full-physics-linux:
+    needs: numerical-geo-time-and-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install "bsk[all,examples]==2.12.2" -r science_requirements.txt
+      - name: Run all 16 deterministic physical scenarios in one test suite
+        run: python -m experiments.mission_03.acceptance
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mission05-linux-evidence
+          path: |
+            results/mission05_acceptance_*/acceptance_summary.json
+            results/mission05_acceptance_*/*.log
+            results/ms05_*/mission03_summary.json
+            results/ms05_*/mission05_coverage.json
+            results/ms05_*/mission05_footprints.geojson
+            results/ms05_*/execution_program_used.json
+            results/ms05_*/acceptance_inputs_used/
+          if-no-files-found: warn
+
+  full-physics-windows-vizard:
+    needs: numerical-geo-time-and-plan
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install "bsk[all,examples]==2.12.2" -r science_requirements.txt
+      - name: Full physical acceptance including real Vizard file
+        run: python -m experiments.mission_03.acceptance --viz
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mission05-windows-evidence
+          path: |
+            results/mission05_acceptance_*/acceptance_summary.json
+            results/mission05_acceptance_*/*.log
+            results/ms05_*/mission03_summary.json
+            results/ms05_*/mission05_coverage.json
+            results/ms05_*/mission05_footprints.geojson
+          if-no-files-found: warn

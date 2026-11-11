@@ -38,6 +38,7 @@ from experiments.mission_01.integration import attach as attach_datachain
 from experiments.power_01.integration import attach as attach_power
 from experiments.power_01.analysis import analyse_run as analyse_power
 from experiments.mission_03.logic import validate, permitted, stage_for_sample
+from experiments.mission_03.epoch import epoch_metadata
 from nirs_satellite.input_paths import input_path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -311,6 +312,10 @@ def main():
         description="Mission03: one Basilisk spacecraft, two physical target switches")
     parser.add_argument("--config",type=Path,default=EXEC_CONFIG,
                         help="Executor control settings; accepts the mixed point/strip demo JSON")
+    parser.add_argument("--camera-config",type=Path,default=input_path("camera_storage_radio"),
+                        help="Optional alternate hardware profile; must pass physical unit validation")
+    parser.add_argument("--adcs-config",type=Path,default=input_path("adcs_wheels"),
+                        help="Optional alternate RW/controller config for repeatable limit tests")
     parser.add_argument("--regions",type=Path,default=input_path("territories"),
                         help="Spherical rotating-Earth fixed polygon regions")
     parser.add_argument("--program",type=Path,
@@ -332,21 +337,26 @@ def main():
         supplied,program_sha=_read(args.program)
         if supplied.get("schema_version")!=1:
             parser.error("Unknown execution-program schema_version; expected 1")
+        if supplied.get("epoch_utc") is not None and supplied["epoch_utc"]!=cfg.get("epoch_utc"):
+            parser.error("Program UTC epoch must match physical executor epoch_utc")
         if supplied.get("execution_policy")!="provided_order_only":
             parser.error("Program must be fixed externally provided order, not an optimizer")
         cfg={**cfg,"tasks":supplied["tasks"],
              "execution_policy":supplied["execution_policy"],
              "provenance":supplied["provenance"]}
+        if "downlink_windows" in supplied:
+            cfg["downlink_windows"]=supplied["downlink_windows"]
     region_cfg,region_sha=_read(args.regions)
     universal=(args.program is not None or cfg.get("execution_policy")=="provided_order_only"
                or len(cfg["tasks"])!=2 or any(
                    task.get("kind","point")=="strip" for task in cfg["tasks"]))
     orbit,orbit_sha=_read(input_path("orbit"))
     geo,geo_sha=_read(input_path("earth_target"))
-    adcs_cfg,adcs_sha=_read(input_path("adcs_wheels"))
+    adcs_cfg,adcs_sha=_read(args.adcs_config)
     power_cfg,power_sha=_read(input_path("power"))
-    mission_cfg,mission_sha=_read(input_path("camera_storage_radio"))
+    mission_cfg,mission_sha=_read(args.camera_config)
     step=float(mission_cfg["capture"]["assumed_exposure_duration_s"])
+    time_reference=epoch_metadata(cfg) if universal else None
     if universal:
         from experiments.mission_03.universal_inputs import validate_program
         region_index=validate_program(cfg,region_cfg,mission_cfg,power_cfg,step)
@@ -374,8 +384,9 @@ def main():
         parser.error("Existing result directory: choose a new --output-name")
     out.mkdir(parents=True)
 
-    # Original Ground01 Earth + orbit composition is kept exactly: same
-    # synthetic epoch, same planet orientation for geometry and Vizard.
+    # Same validated Basilisk Earth/orbit composition, but universal missions
+    # can now anchor initial sidereal angle to an explicit UTC+UT1 epoch.
+    # This is approximate GMST, NOT a full ITRF/EOP or precession solution.
     sim=SimulationBaseClass.SimBaseClass()
     process=sim.CreateNewProcess("mission03PhysicalProcess")
     task="mission03PhysicalTask"
@@ -392,7 +403,9 @@ def main():
     e=geo["earth"]
     eph.rightAscension=planetEphemeris.DoubleVector([math.radians(e["rotational_pole_ra_deg"])])
     eph.declination=planetEphemeris.DoubleVector([math.radians(e["rotational_pole_dec_deg"])])
-    eph.lst0=planetEphemeris.DoubleVector([math.radians(e["initial_sidereal_angle_deg"])])
+    eph.lst0=planetEphemeris.DoubleVector([math.radians(
+        time_reference["gmst_start_deg"] if time_reference else
+        e["initial_sidereal_angle_deg"])])
     eph.rotRate=planetEphemeris.DoubleVector([float(e["rotation_rate_rad_s"])])
     sim.AddModelToTask(task,eph,ModelPriority=200)
 
@@ -418,7 +431,11 @@ def main():
     sc.hub.r_CN_NInit,sc.hub.v_CN_NInit=orbitalMotion.elem2rv(float(earth.mu),el)
     sim.AddModelToTask(task,sc,ModelPriority=150)
 
-    first=cfg["tasks"][0]
+    first=cfg["tasks"][0] if cfg["tasks"] else {
+        "lat_deg":geo["target"]["latitude_deg"],
+        "lon_deg":geo["target"]["longitude_deg"],
+        "altitude_m":0.,"minimum_elevation_deg":0.,
+        "maximum_range_m":-1.}
     if universal and first.get("kind","point")=="strip":
         polygon=region_index[first["region_id"]]["polygon_lat_lon_deg"]
         first={"lat_deg":sum(p[0] for p in polygon)/len(polygon),
@@ -432,10 +449,12 @@ def main():
     target.planetInMsg.subscribeTo(eph.planetOutMsgs[0])
     sim.AddModelToTask(task,target,ModelPriority=100)
 
-    adcs=attach_adcs(sim,task,sc,target,orbit,step)
+    adcs=attach_adcs(sim,task,sc,target,orbit,step,
+                     config_path_override=args.adcs_config)
     data=attach_datachain(
         sim,task,sc,eph.planetOutMsgs[0],float(orbit["reference_radius_m"]),
-        target.accessOutMsgs[0],adcs.guidance_msg,step,profile="nominal")
+        target.accessOutMsgs[0],adcs.guidance_msg,step,profile="nominal",
+        config_path_override=args.camera_config)
     # Create every partition before InitializeSimulation. A real Basilisk
     # transmitter can serve the separate recorded products; no fake buffer.
     if universal:
@@ -445,7 +464,8 @@ def main():
                 data.storage_model.addPartition(job["id"])
         data.transmitter_model.numBuffers=len(cfg["tasks"])+(
             0 if any(j["id"]==first_partition for j in cfg["tasks"]) else 1)
-        data.instrument_model.nodeDataName=cfg["tasks"][0]["id"]
+        if cfg["tasks"]:
+            data.instrument_model.nodeDataName=cfg["tasks"][0]["id"]
     else:
         data.storage_model.addPartition(cfg["tasks"][1]["id"])
         data.transmitter_model.numBuffers=2
@@ -507,6 +527,8 @@ def main():
     sim.ConfigureStopTime(macros.sec2nano(horizon_s))
     sim.ExecuteSimulation()
     print("MISSION03: physical propagation finished; checking evidence",flush=True)
+    if universal:
+        director.finalize(horizon_s)
     events=director.events
     if universal:
         switch_t=director.switch_times[0] if director.switch_times else None
@@ -516,17 +538,25 @@ def main():
         switch_t=director.switch_t
         granted_segments=director.granted_segments
         observations=sum(x["event"]=="captured" for x in events)
+    # External planner programs and validation profiles can legitimately
+    # reside OUTSIDE the repository; provenance must not assume ROOT-relative.
+    def source_key(path):
+        p=Path(path).resolve()
+        try:
+            return p.relative_to(ROOT).as_posix()
+        except ValueError:
+            return str(p)
     source_hashes={
-        str(path.relative_to(ROOT)):checksum for path,checksum in (
-            (args.config.resolve(),sha),(input_path("orbit"),orbit_sha),
-            (input_path("earth_target"),geo_sha),(input_path("adcs_wheels"),adcs_sha),
-            (input_path("power"),power_sha),(input_path("camera_storage_radio"),mission_sha))
+        source_key(path):checksum for path,checksum in (
+            (args.config,sha),(input_path("orbit"),orbit_sha),
+            (input_path("earth_target"),geo_sha),(args.adcs_config,adcs_sha),
+            (input_path("power"),power_sha),(args.camera_config,mission_sha))
     }
     if universal:
         from experiments.mission_03.report_universal import save_results
-        source_hashes[str(args.regions)]=region_sha
+        source_hashes[source_key(args.regions)]=region_sha
         if args.program is not None:
-            source_hashes[str(args.program)]=program_sha
+            source_hashes[source_key(args.program)]=program_sha
         (out/"execution_program_used.json").write_text(
             json.dumps(cfg,ensure_ascii=False,indent=2),encoding="utf-8")
         (out/"territories_used.json").write_text(
@@ -535,7 +565,7 @@ def main():
             out=out,cfg=cfg,regions=region_index,source_hashes=source_hashes,
             state=sc_rec,target_rec=ground_rec,target_access=access_rec,
             adcs=adcs,data=data,power=power,director=director,
-            bin_path=bin_path,step=step)
+            bin_path=bin_path,step=step,epoch_info=time_reference)
     else:
         result=_write_outputs(
             out,cfg,source_hashes,horizon_s,sc_rec,ground_rec,access_rec,
@@ -551,8 +581,11 @@ def main():
         "checks_passed":result["checks_passed"],
         "vizard":result["vizard_file"],
     },ensure_ascii=False),flush=True)
-    if (args.require_two_captures or args.require_all_complete) and not result["checks_passed"]:
+    if args.require_two_captures and not result["checks_passed"]:
         raise SystemExit(f"MISSION03 ACCEPTANCE FAILED: {result['checks']}")
+    if args.require_all_complete and (not result["checks_passed"] or
+                                      not result.get("mission_complete",True)):
+        raise SystemExit(f"MISSION03 MISSION-INCOMPLETE: {result['checks']}")
 
 
 if __name__=="__main__":

@@ -18,8 +18,8 @@ def _xy(lat:float,lon:float,lat0:float,lon0:float,radius:float)->tuple[float,flo
 def validate_regions(cfg:dict)->dict[str,dict]:
     if not str(cfg.get("provenance","")).startswith("SYNTHETIC"):
         raise ValueError("Region source must state synthetic provenance")
-    if cfg.get("frame")!="planet_fixed_spherical_lat_lon_deg":
-        raise ValueError("Expected rotating spherical Earth-fixed lat/lon regions")
+    if cfg.get("frame") not in ("planet_fixed_spherical_lat_lon_deg","WGS84_geodetic_lat_lon_deg"):
+        raise ValueError("Expected rotating Earth-fixed spherical or WGS84 geodetic lat/lon")
     regions=cfg.get("regions")
     if not isinstance(regions,list) or not regions:
         raise ValueError("At least one bounded Earth-fixed region is required")
@@ -104,3 +104,29 @@ def great_circle_distance_m(a:tuple[float,float],b:tuple[float,float],radius_m:f
     delta=p2-p1;lam=l2-l1
     h=math.sin(delta/2)**2+math.cos(p1)*math.cos(p2)*math.sin(lam/2)**2
     return 2*radius_m*math.asin(min(1.,math.sqrt(max(0.,h))))
+
+
+# WGS84 constants (NGA/NIMA ellipsoid), independent of the Basilisk
+# physical force model's Earth radius; never call this an ITRF solution.
+WGS84_A=6378137.0
+WGS84_F=1.0/298.257223563
+WGS84_B=WGS84_A*(1.0-WGS84_F)
+
+def wgs84_subpoint_from_position(position_N_m,rotation_J2000_to_Pfix):
+    """Ray through Earth centre meets WGS84 ellipsoid; geodetic lat/lon.
+
+    This is a RADIAL nadir footprint approximation (not geodetic-normal
+    boresight intersection). Altitude is approximate radial separation.
+    """
+    rot=rotation_J2000_to_Pfix
+    if len(rot)==9 and not hasattr(rot[0],"__len__"):
+        rot=[rot[0:3],rot[3:6],rot[6:9]]
+    x,y,z=[sum(float(rot[i][k])*float(position_N_m[k]) for k in range(3)) for i in range(3)]
+    scale=1.0/math.sqrt((x*x+y*y)/(WGS84_A**2)+(z*z)/(WGS84_B**2))
+    gx,gy,gz=x*scale,y*scale,z*scale
+    geodetic_lat=math.degrees(math.atan2(gz/WGS84_B**2,math.hypot(gx,gy)/WGS84_A**2))
+    lon=_wrap(math.degrees(math.atan2(y,x)))
+    altitude=math.sqrt(x*x+y*y+z*z)-math.sqrt(gx*gx+gy*gy+gz*gz)
+    if altitude<=0 or not all(math.isfinite(v) for v in (geodetic_lat,lon,altitude)):
+        raise ValueError("WGS84 subpoint requires finite physical spacecraft altitude")
+    return geodetic_lat,lon,altitude

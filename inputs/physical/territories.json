@@ -1,7 +1,7 @@
 {
   "scenario_id": "mission04_territories",
-  "provenance": "SYNTHETIC Earth-fixed region polygons derived for approximate 500 km 45-deg-inclination orbit; NOT surveyed boundaries",
-  "frame": "planet_fixed_spherical_lat_lon_deg",
+  "provenance": "SYNTHETIC Earth-fixed region polygons derived for approximate 500 km 45-deg-inclination orbit; NOT surveyed boundaries; WGS84 polygon; simplified Basilisk Earth orientation",
+  "frame": "WGS84_geodetic_lat_lon_deg",
   "regions": [
     {
       "id": "CORRIDOR_ALPHA",

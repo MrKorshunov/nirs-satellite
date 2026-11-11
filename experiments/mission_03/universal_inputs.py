@@ -7,6 +7,8 @@ from __future__ import annotations
 import math,re
 from experiments.mission_03.logic import permitted
 from experiments.mission_03.swath_geometry import validate_regions
+from experiments.mission_03.timeline import validate_windows
+from experiments.mission_03.epoch import epoch_metadata
 
 ID=re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,31}$")
 
@@ -16,8 +18,8 @@ def validate_program(cfg:dict,regions_cfg:dict,mission_cfg:dict,power_cfg:dict,s
     if cfg.get("execution_policy")!="provided_order_only":
         raise ValueError("Executor only supports externally provided fixed-order tasks, not optimization")
     tasks=cfg.get("tasks")
-    if not isinstance(tasks,list) or not 1<=len(tasks)<=64:
-        raise ValueError("Physical program must contain 1..64 tasks")
+    if not isinstance(tasks,list) or not 0<=len(tasks)<=64:
+        raise ValueError("Physical program must contain 0..64 tasks (zero = idle satellite)")
     if not isinstance(step,(float,int)) or not math.isfinite(step) or step<=0 or step>1:
         raise ValueError("Physical integration step must be positive <=1s")
     positive=["control_step_s","reserve_guard_wh","battery_reenable_hysteresis_wh"]
@@ -31,6 +33,9 @@ def validate_program(cfg:dict,regions_cfg:dict,mission_cfg:dict,power_cfg:dict,s
     reserve=float(cfg["reserve_wh"])
     if not math.isfinite(reserve) or reserve<0 or reserve>=float(power_cfg["battery_capacity_wh"]):
         raise ValueError("Energy reserve out of battery capacity")
+    validate_windows(cfg,step)
+    if "epoch_utc" in cfg:
+        epoch_metadata(cfg)
     index=validate_regions(regions_cfg)
     names=set()
     capacity=float(mission_cfg["storage"]["capacity_bytes"])
@@ -63,6 +68,9 @@ def validate_program(cfg:dict,regions_cfg:dict,mission_cfg:dict,power_cfg:dict,s
                 raise ValueError("Unknown strip region: "+job["region_id"])
             if job.get("look_direction")!="nadir":
                 raise ValueError("First physical strip mode supports nadir only")
+            min_coverage=float(job.get("min_coverage_percent",0.0))
+            if not math.isfinite(min_coverage) or not 0<=min_coverage<=100:
+                raise ValueError("Requested strip coverage percent must be within [0,100]")
             fov=float(job["fov_cross_track_deg"])
             if not math.isfinite(fov) or not 0<fov<60:
                 raise ValueError("Strip FOV must be 0..60 degrees")
