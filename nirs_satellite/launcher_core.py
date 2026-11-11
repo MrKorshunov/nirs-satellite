@@ -15,10 +15,12 @@ VALID_NAME = re.compile(r"^[a-zA-Z0-9_-]{1,48}$")
 
 PROFILE_PHYSICAL = "physical"
 PROFILE_RESEARCH = "research"
+PROFILE_STRIP = "mixed"
 PROFILE_TEST = "tests"
 
 PROFILES = {
     PROFILE_PHYSICAL: "Физический КА: 2 цели, RW + батарея + съёмка + связь",
+    PROFILE_STRIP: "Физический КА: точечная + полосная съёмка (без оптимизации)",
     PROFILE_RESEARCH: "Проверка планирования: несколько заданий, FIFO / EDF / Priority",
     PROFILE_TEST: "Автоматические проверки Python (без визуализации)",
 }
@@ -65,17 +67,20 @@ def build_plan(
         raise ValueError("Имя запуска: только латиница, цифры, _ и -, не больше 48 символов")
     if not math.isfinite(hours) or hours <= 0:
         raise ValueError("Длительность должна быть положительным числом часов")
-    if profile == PROFILE_PHYSICAL:
-        if hours < 0.2 or hours > 12:
+    if profile in (PROFILE_PHYSICAL, PROFILE_STRIP):
+        if hours < 0.2 or hours > 2:
             raise ValueError("Физическая модель: от 0.2 до 12 часов")
         # One continuous physical Basilisk simulation for both target observations.
         argv = (
             python_executable, "-m", "experiments.mission_03.run",
             "--duration-hours", str(hours),
             "--viz-mode", "file" if record_vizard else "off",
-            "--require-two-captures",
+            "--require-all-complete" if profile == PROFILE_STRIP else "--require-two-captures",
             "--output-name", name,
         )
+        if profile == PROFILE_STRIP:
+            argv += ("--config", str(root / "inputs" / "physical" / "mission_mixed_demo.json"),
+                     "--regions", str(root / "inputs" / "physical" / "territories.json"))
         if record_vizard:
             argv += ("--viz-step-s", "10")
         vizard_base = (Path(local_appdata) if local_appdata else
