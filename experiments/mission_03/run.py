@@ -569,8 +569,12 @@ def main():
         "checks_passed":result["checks_passed"],
         "vizard":result["vizard_file"],
     },ensure_ascii=False),flush=True)
-    if (args.require_two_captures or args.require_all_complete) and not result["checks_passed"]:
-        raise SystemExit(f"MISSION03 ACCEPTANCE FAILED: {result['checks']}")
+    if not result["checks_passed"]:
+        raise SystemExit(f"MISSION03 PHYSICAL INTEGRITY FAILED: {result['checks']}")
+    if args.require_all_complete and not result.get("all_tasks_completed",True):
+        raise SystemExit("MISSION03 MISSION OUTCOME: tasks incomplete; technical checks passed")
+    if args.require_two_captures and not result["checks_passed"]:
+        raise SystemExit(f"MISSION03 TWO-TARGET ACCEPTANCE FAILED: {result['checks']}")
 
 
 if __name__=="__main__":
