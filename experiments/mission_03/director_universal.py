@@ -50,6 +50,7 @@ class UniversalMissionDirector(sysModel.SysModel):
         self.task_reason={v["id"]:None for v in self.tasks}
         self.blocked={v["id"]:{} for v in self.tasks}
         self.lines=[]
+        self.geometry_errors=[]
         self.ground_track=[]
         self.switch_times=[]
         self.power_enabled_segments=[]
@@ -172,10 +173,16 @@ class UniversalMissionDirector(sysModel.SysModel):
                     lat,lon,h,float(job["fov_cross_track_deg"]),
                     region["polygon_lat_lon_deg"],self.radius)
                 previous=self.ground_track[-2] if len(self.ground_track)>1 else None
-                measured_overlap=self._footprints.cell_overlap_m2(
-                    job["region_id"],
-                    (previous["lat_deg"],previous["lon_deg"]) if previous else None,
-                    (lat,lon),width,predict_next=False)
+                try:
+                    measured_overlap=self._footprints.cell_overlap_m2(
+                        job["region_id"],
+                        (previous["lat_deg"],previous["lon_deg"]) if previous else None,
+                        (lat,lon),width,predict_next=False)
+                except Exception as exc:
+                    measured_overlap=0.
+                    self.geometry_errors.append({
+                        "t_s":t,"task":name,"phase":"actual_footprint",
+                        "error_type":type(exc).__name__,"message":str(exc)})
                 if measured_overlap<=0:
                     # Never raise an exception through Basilisk's C++/SWIG
                     # UpdateState callback: it may tear down the interpreter
@@ -237,10 +244,16 @@ class UniversalMissionDirector(sysModel.SysModel):
             from experiments.mission_03.swath_geometry import nadir_footprint_width_m
             width=nadir_footprint_width_m(h,float(job["fov_cross_track_deg"]))
             previous=self.ground_track[-2] if len(self.ground_track)>1 else None
-            next_overlap=self._footprints.cell_overlap_m2(
-                job["region_id"],
-                (previous["lat_deg"],previous["lon_deg"]) if previous else None,
-                (lat,lon),width,predict_next=True)
+            try:
+                next_overlap=self._footprints.cell_overlap_m2(
+                    job["region_id"],
+                    (previous["lat_deg"],previous["lon_deg"]) if previous else None,
+                    (lat,lon),width,predict_next=True)
+            except Exception as exc:
+                next_overlap=0.
+                self.geometry_errors.append({
+                    "t_s":t,"task":job["id"],"phase":"next_camera_permission",
+                    "error_type":type(exc).__name__,"message":str(exc)})
             # Avoid spurious grazing-boundary captures caused by one-step
             # extrapolation errors of a few metres near the polygon boundary.
             self._strip_eligible=next_overlap>10_000.
