@@ -1,0 +1,134 @@
+name: Mission05 research-readiness acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/mission_03/**'
+      - 'inputs/physical/**'
+      - 'nirs_satellite/**'
+      - 'tests/test_mission05_research_readiness.py'
+      - '.github/workflows/mission05.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/mission_03/**'
+      - 'inputs/physical/**'
+      - 'nirs_satellite/**'
+      - 'tests/test_mission05_research_readiness.py'
+      - '.github/workflows/mission05.yml'
+
+jobs:
+  geodesy-schedule-coverage-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m compileall -q experiments nirs_satellite tests
+      - run: python -m unittest tests.test_mission05_research_readiness tests.test_mission04_swath tests.test_input_registry -v
+
+  integrated-physical-linux:
+    needs: geodesy-schedule-coverage-unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install "bsk[all,examples]==2.12.2"
+      - name: Physically execute scheduled point and strip observations
+        run: python -m experiments.mission_03.run --config inputs/physical/mission_mixed_demo.json --program inputs/physical/scheduled_program_example.json --regions inputs/physical/territories.json --viz-mode off --duration-hours 0.2 --require-all-complete --output-name mission05_timed
+      - name: Independently check scheduled-vs-actual, coverage, data and technical result
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("results/mission05_timed")
+          s=json.loads((p/"mission03_summary.json").read_text(encoding="utf-8"))
+          assert s["checks_passed"] and s["mission_success"],s
+          assert [v["capture_count"] for v in s["tasks"]]==[1,1,12]
+          assert all(v["actual_first_capture_s"]>=v["planned_start_s"] for v in s["tasks"])
+          assert all(v["actual_last_capture_s"]<=v["planned_end_s"] for v in s["tasks"])
+          assert s["coverage_by_region"]["CORRIDOR_ALPHA"]["coverage_percent"]>0
+          assert s["coverage_by_region"]["CORRIDOR_ALPHA"]["coverage_percent"]<100
+          assert s["total_observed_region_area_m2"]>0
+          assert (p/"mission03_coverage.json").is_file()
+          assert (p/"mission03_planned_vs_actual.csv").is_file()
+          assert (p/"mission03_groundtrack.csv").is_file()
+          assert (p/"mission03_actual_camera_operations.csv").is_file()
+          print("DATED SCHEDULE CONTRACT, PHYSICAL BITS, UNION COVERAGE: PASS")
+          PY
+      - name: Intentional missed planned window is not a numerical failure
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          cfg=json.loads(Path("inputs/physical/scheduled_program_example.json").read_text())
+          cfg["tasks"][0]["planned_end_s"]=10.0
+          Path("missed_window.json").write_text(json.dumps(cfg))
+          PY
+          python -m experiments.mission_03.run --config inputs/physical/mission_mixed_demo.json --program missed_window.json --viz-mode off --duration-hours 0.2 --output-name mission05_missed
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          s=json.loads(Path("results/mission05_missed/mission03_summary.json").read_text())
+          assert s["checks_passed"] and not s["mission_success"],s
+          assert s["tasks"][0]["status"]=="planned_window_missed",s["tasks"]
+          print("VALID MISSED SCHEDULE IS NOT A SIMULATION FAILURE")
+          PY
+      - name: True low battery and off-track negative tests remain active
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          cfg=json.loads(Path("inputs/physical/mission_mixed_demo.json").read_text())
+          cfg["reserve_wh"]=64.95
+          cfg["reserve_guard_wh"]=5.
+          Path("low_power05.json").write_text(json.dumps(cfg))
+          regions=json.loads(Path("inputs/physical/territories.json").read_text())
+          regions["regions"][0]["polygon_lat_lon_deg"]=[[-48,47],[-48,54],[-44,54],[-44,47]]
+          Path("off_track05.json").write_text(json.dumps(regions))
+          PY
+          python -m experiments.mission_03.run --config low_power05.json --viz-mode off --duration-hours 0.2 --output-name mission05_power
+          python -m experiments.mission_03.run --config inputs/physical/mission_mixed_demo.json --regions off_track05.json --viz-mode off --duration-hours 0.2 --output-name mission05_offtrack
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path("results/mission05_power/mission03_summary.json").read_text())
+          o=json.loads(Path("results/mission05_offtrack/mission03_summary.json").read_text())
+          assert p["checks_passed"] and not p["mission_success"],p
+          assert p["generated_bits"]==0 and p["power_disabled_segments"]>0
+          assert o["checks_passed"] and not o["mission_success"],o
+          assert o["strip_samples"]==0 and o["coverage_by_region"]["CORRIDOR_ALPHA"]["coverage_percent"]==0
+          print("NO FABRICATED DATA IN OFF-TRACK/LOW-POWER TESTS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mission05-linux
+          path: results/mission05_*/
+          if-no-files-found: warn
+
+  integrated-physical-windows:
+    needs: geodesy-schedule-coverage-unit
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install "bsk[all,examples]==2.12.2"
+      - name: Scheduled physical targets, coverage, battery and Vizard playback
+        run: python -m experiments.mission_03.run --config inputs/physical/mission_mixed_demo.json --program inputs/physical/scheduled_program_example.json --viz-mode file --duration-hours 0.2 --require-all-complete --output-name mission05_windows
+      - name: Verify physically measured schedule and Vizard
+        run: |
+          python -c "import json,pathlib; p=pathlib.Path('results/mission05_windows'); r=json.loads((p/'mission03_summary.json').read_text()); assert r['checks_passed'] and r['mission_success'] and r['vizard_created'] and r['coverage_by_region']['CORRIDOR_ALPHA']['covered_area_m2']>0; print('WINDOWS SCHEDULE+FOOTPRINT+VIZARD ACCEPTED')"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mission05-windows
+          path: results/mission05_windows/
+          if-no-files-found: warn
