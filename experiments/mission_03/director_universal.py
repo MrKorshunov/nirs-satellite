@@ -1,0 +1,221 @@
+"""Generic fixed-order Basilisk task execution (NOT a planner).
+
+This low-priority Basilisk SysModel observes actual camera, storage, battery and
+spacecraft state. It commands the next target and camera/radio power for the
+NEXT physical time step. Strip mode continuously updates a nadir groundLocation
+from the *physical* spacecraft ephemeris and true planet-fixed rotation.
+"""
+from __future__ import annotations
+import math
+from Basilisk.architecture import sysModel
+from Basilisk.utilities import macros
+
+from experiments.mission_03.logic import permitted
+from experiments.mission_03.swath_geometry import (
+    ground_point_from_position, swath_intersects_region,
+    great_circle_distance_m,
+)
+
+class UniversalMissionDirector(sysModel.SysModel):
+    def __init__(self, *, cfg, regions, data, target, power, spacecraft,
+                 planet_msg, earth_radius_m, step_s, nominal_att_tol,
+                 nominal_rate_tol, nominal_radio_bps, default_product_bytes):
+        super().__init__()
+        self.ModelTag="NIRS_UniversalPhysicalExecutor"
+        self.cfg=cfg
+        self.regions=regions
+        self.data=data
+        self.target=target
+        self.power=power
+        self.spacecraft=spacecraft
+        self.planet_msg=planet_msg
+        self.radius=float(earth_radius_m)
+        self.step=float(step_s)
+        self.tasks=list(cfg["tasks"])
+        self.phase=0
+        self.nominal_att_tol=float(nominal_att_tol)
+        self.nominal_rate_tol=float(nominal_rate_tol)
+        self.nominal_radio_bps=float(nominal_radio_bps)
+        self.default_product_bytes=int(default_product_bytes)
+        self.events=[{"t_s":0.,"event":"task_assigned","task":self.tasks[0]["id"]}]
+        self.capture_count={v["id"]:0 for v in self.tasks}
+        self.capture_times={v["id"]:[] for v in self.tasks}
+        self.task_status={v["id"]:"pending" for v in self.tasks}
+        self.lines=[]
+        self.switch_times=[]
+        self.power_enabled_segments=[]
+        self.allowed=True
+        self._next_control_ns=0
+        self._last_capture_ns=None
+        self._previous_strip_fix=None
+        self._previous_strip_time=None
+        self._last_camera=None
+        self._last_radio=None
+        self._strip_eligible=False
+        self._last_subpoint=None
+
+    def Reset(self,CurrentSimNanos):
+        self._next_control_ns=0
+        self._last_capture_ns=None
+        return super().Reset(CurrentSimNanos)
+
+    def _task(self):
+        return self.tasks[self.phase] if self.phase<len(self.tasks) else None
+
+    def _assign_task(self,t):
+        job=self._task()
+        if job is None:
+            self.events.append({"t_s":t,"event":"program_completed"})
+            return
+        if job.get("kind","point")=="point":
+            self.target.specifyLocation(
+                macros.D2R*float(job["lat_deg"]),macros.D2R*float(job["lon_deg"]),
+                float(job["altitude_m"]))
+            self.target.minimumElevation=macros.D2R*float(job["minimum_elevation_deg"])
+            self.target.maximumRange=float(job["maximum_range_m"])
+        else:
+            # The first concrete nadir update follows in the same director step.
+            self.target.minimumElevation=0.0
+            self.target.maximumRange=-1.0
+        self.data.instrument_model.nodeDataName=job["id"]
+        self.data.controller_model.imaged=0
+        self._previous_strip_fix=None
+        self._previous_strip_time=None
+        self.events.append({"t_s":t,"event":"task_assigned","task":job["id"]})
+        self.switch_times.append(t)
+
+    def _advance(self,t,status):
+        job=self._task()
+        if job is None:
+            return
+        self.task_status[job["id"]]=status
+        self.events.append({"t_s":t,"event":"task_completed" if status=="completed" else "task_skipped",
+                            "task":job["id"],"status":status,
+                            "samples":self.capture_count[job["id"]]})
+        self.phase+=1
+        self._assign_task(t)
+
+    def _subpoint(self):
+        r=self.spacecraft.scStateOutMsg.read().r_BN_N
+        rot=self.planet_msg.read().J20002Pfix
+        return ground_point_from_position(r,rot,self.radius)
+
+    def UpdateState(self,CurrentSimNanos):
+        t=float(CurrentSimNanos)*macros.NANO2SEC
+        job=self._task()
+        baud=float(self.data.instrument_model.nodeDataOutMsg.read().baudRate)
+
+        # Only a REAL Basilisk DataNodeUsage positive data impulse qualifies as
+        # an image line. The director never fabricates successful captures.
+        if job is not None and baud>1e-8 and self._last_capture_ns!=CurrentSimNanos:
+            self._last_capture_ns=CurrentSimNanos
+            name=job["id"]
+            self.capture_count[name]+=1
+            self.capture_times[name].append(t)
+            kind=job.get("kind","point")
+            if kind=="strip":
+                lat,lon,h=self._subpoint()
+                region=self.regions[job["region_id"]]
+                overlap,distance,width=swath_intersects_region(
+                    lat,lon,h,float(job["fov_cross_track_deg"]),
+                    region["polygon_lat_lon_deg"],self.radius)
+                if not overlap:
+                    raise AssertionError("Basilisk camera produced a strip line outside ground swath")
+                length=0.0
+                if self._previous_strip_fix is not None and self._previous_strip_time is not None:
+                    lag=t-self._previous_strip_time
+                    if lag<=self.step*1.5:
+                        length=great_circle_distance_m(
+                            self._previous_strip_fix,(lat,lon),self.radius)
+                self._previous_strip_fix=(lat,lon)
+                self._previous_strip_time=t
+                record={"t_s":t,"task":name,"lat_deg":lat,"lon_deg":lon,
+                        "altitude_m":h,"region_signed_distance_m":distance,
+                        "swath_width_m":width,"along_track_m":length,
+                        "approx_area_m2":length*width,"data_bits":baud*self.step}
+                self.lines.append(record)
+                self.events.append({"t_s":t,"event":"strip_line","task":name,
+                                    "line":self.capture_count[name],
+                                    "data_bits":baud*self.step})
+                if self.capture_count[name]>=int(job["max_samples"]):
+                    self._advance(t,"completed")
+            else:
+                self.events.append({"t_s":t,"event":"point_captured",
+                                    "task":name,"data_bits":baud*self.step})
+                self._advance(t,"completed")
+
+        # Expired tasks are skipped, never represented as physical captures.
+        while (self._task() is not None
+               and t>float(self._task()["deadline_s"])):
+            current=self._task()
+            samples=self.capture_count[current["id"]]
+            minimum=int(current.get("min_samples",1))
+            status="completed" if current.get("kind","point")=="strip" and samples>=minimum else "deadline_missed"
+            self._advance(t,status)
+
+        job=self._task()
+        # Direct physical subpoint and footprint recomputed every dynamics tick.
+        self._strip_eligible=False
+        if job is not None and job.get("kind","point")=="strip":
+            lat,lon,h=self._subpoint()
+            self._last_subpoint=(lat,lon,h)
+            self.target.specifyLocation(macros.D2R*lat,macros.D2R*lon,0.)
+            reg=self.regions[job["region_id"]]
+            overlap,_,_=swath_intersects_region(
+                lat,lon,h,float(job["fov_cross_track_deg"]),
+                reg["polygon_lat_lon_deg"],self.radius)
+            self._strip_eligible=overlap
+
+        # Battery policy is sampled at the declared slower 5s cadence. Camera
+        # geometry still changes each 0.5s, not every 5s.
+        if CurrentSimNanos>=self._next_control_ns:
+            self._next_control_ns=CurrentSimNanos+macros.sec2nano(
+                float(self.cfg["control_step_s"]))
+            energy=float(self.power.battery_model.batPowerOutMsg.read().storageLevel)/3600.
+            authorized=permitted(
+                energy,reserve_wh=float(self.cfg["reserve_wh"]),
+                guard_wh=float(self.cfg["reserve_guard_wh"]),
+                hysteresis_wh=float(self.cfg["battery_reenable_hysteresis_wh"]),
+                previously_permitted=self.allowed)
+            if authorized!=self.allowed:
+                self.events.append({"t_s":t,"event":"power_enabled" if authorized else "power_safe_mode",
+                                    "battery_wh":energy})
+            self.allowed=authorized
+            self.power_enabled_segments.append(authorized)
+
+        # Actual shared onboard buffer gates the next imager acquisition.
+        storage_bits=float(self.data.storage_model.storageUnitDataOutMsg.read().storageLevel)
+        cap_bits=float(self.data.config["storage"]["capacity_bytes"])*8
+        packet_bits=abs(float(self.data.transmitter_model.packetSize))
+        station_access=bool(self.data.station_model.accessOutMsgs[0].read().hasAccess)
+        kind=job.get("kind","point") if job is not None else ""
+        product_bytes=(int(job.get("sample_bytes",0)) if kind=="strip" else
+                       int(job.get("product_bytes",self.default_product_bytes))
+                       if job is not None else self.default_product_bytes)
+        imaging_allowed=(job is not None and self.allowed
+                         and t>=float(job.get("release_s",0))
+                         and t<=float(job["deadline_s"])
+                         and (kind!="strip" or self._strip_eligible)
+                         and storage_bits+8*product_bytes<=cap_bits+1)
+        self.data.controller_model.attErrTolerance=(
+            self.nominal_att_tol if imaging_allowed else -1.)
+        self.data.controller_model.rateErrTolerance=(
+            self.nominal_rate_tol if imaging_allowed else -1.)
+        if job is not None:
+            self.data.instrument_model.nodeBaudRate=float(product_bytes)*8/self.step
+        if kind=="strip" and imaging_allowed:
+            # Re-arm each line. The actual Basilisk access/attitude gate still
+            # decides whether the camera produces bytes this step.
+            self.data.controller_model.imaged=0
+        radio_allowed=self.allowed and station_access and storage_bits>=packet_bits
+        self.data.transmitter_model.nodeBaudRate=(
+            -self.nominal_radio_bps if radio_allowed else 0.)
+        self.power.imaging_sink.powerStatus=1 if imaging_allowed else 0
+        self.power.transmitter_sink.powerStatus=1 if radio_allowed else 0
+        if imaging_allowed!=self._last_camera:
+            self.events.append({"t_s":t,"event":"camera_armed" if imaging_allowed else "camera_off",
+                                "task":job["id"] if job else None})
+            self._last_camera=imaging_allowed
+        if radio_allowed!=self._last_radio:
+            self.events.append({"t_s":t,"event":"radio_on" if radio_allowed else "radio_off"})
+            self._last_radio=radio_allowed
