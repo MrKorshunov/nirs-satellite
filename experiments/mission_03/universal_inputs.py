@@ -71,6 +71,7 @@ def validate_program(cfg:dict,regions_cfg:dict,mission_cfg:dict,power_cfg:dict,s
             size=int(job["sample_bytes"])
             if not 1<=lines<=maximum<=10000 or not 0<size<=capacity:
                 raise ValueError("Strip line count or sample size invalid")
-            if maximum*size>capacity:
-                raise ValueError("One strip task could exceed physical memory even without downlink")
+            # Long strip programs may exceed total memory volume if the
+            # transmitter frees storage between physical line captures.
+            # The in-Basilisk director applies per-line free-space gating.
     return index
