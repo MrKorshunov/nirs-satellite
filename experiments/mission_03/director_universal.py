@@ -19,7 +19,8 @@ from experiments.mission_03.swath_geometry import (
 class UniversalMissionDirector(sysModel.SysModel):
     def __init__(self, *, cfg, regions, data, target, power, spacecraft,
                  planet_msg, earth_radius_m, step_s, nominal_att_tol,
-                 nominal_rate_tol, nominal_radio_bps, default_product_bytes):
+                 nominal_rate_tol, nominal_radio_bps, default_product_bytes,
+                 time_reference=None):
         super().__init__()
         self.ModelTag="NIRS_UniversalPhysicalExecutor"
         self.cfg=cfg
@@ -30,6 +31,8 @@ class UniversalMissionDirector(sysModel.SysModel):
         self.spacecraft=spacecraft
         self.planet_msg=planet_msg
         self.radius=float(earth_radius_m)
+        self.time_reference=time_reference or {"mode":"synthetic"}
+        self.geodetic=self.time_reference["mode"]=="utc_approx_wgs84"
         self.step=float(step_s)
         self.tasks=list(cfg["tasks"])
         self.phase=0
@@ -43,6 +46,8 @@ class UniversalMissionDirector(sysModel.SysModel):
         self.task_status={v["id"]:"pending" for v in self.tasks}
         self.lines=[]
         self.ground_track=[]
+        self.actual_operations=[]
+        self.inhibited_counts={"memory":0,"power":0,"schedule":0,"geometry":0}
         self.switch_times=[]
         self.power_enabled_segments=[]
         self.allowed=True
@@ -69,8 +74,12 @@ class UniversalMissionDirector(sysModel.SysModel):
             self.events.append({"t_s":t,"event":"program_completed"})
             return
         if job.get("kind","point")=="point":
+            latitude=float(job["lat_deg"])
+            if self.geodetic:
+                from experiments.mission_03.geo_time import geocentric_latitude_for_geodetic
+                latitude=geocentric_latitude_for_geodetic(latitude,float(job["altitude_m"]))
             self.target.specifyLocation(
-                macros.D2R*float(job["lat_deg"]),macros.D2R*float(job["lon_deg"]),
+                macros.D2R*latitude,macros.D2R*float(job["lon_deg"]),
                 float(job["altitude_m"]))
             self.target.minimumElevation=macros.D2R*float(job["minimum_elevation_deg"])
             self.target.maximumRange=float(job["maximum_range_m"])
@@ -92,14 +101,34 @@ class UniversalMissionDirector(sysModel.SysModel):
         self.task_status[job["id"]]=status
         self.events.append({"t_s":t,"event":"task_completed" if status=="completed" else "task_skipped",
                             "task":job["id"],"status":status,
-                            "samples":self.capture_count[job["id"]]})
+                            "reason":self._reason(status),"samples":self.capture_count[job["id"]]})
         self.phase+=1
         self._assign_task(t)
+
+    def _reason(self,status):
+        if status=="completed":
+            return None
+        if status=="planned_window_missed":
+            return "planned observation interval ended before minimum physical capture"
+        if status=="deadline_missed":
+            return "physical observation unavailable by task deadline"
+        if status=="horizon_unfinished":
+            return "simulation horizon ended before task completion"
+        return str(status)
+
+    def finish(self,horizon_s):
+        # A missed task is a VALID physical outcome, not a simulation failure.
+        while self._task() is not None:
+            job=self._task()
+            complete=(job.get("kind","point")=="strip" and
+                      self.capture_count[job["id"]]>=int(job["min_samples"]))
+            self._advance(float(horizon_s),"completed" if complete else "horizon_unfinished")
 
     def _subpoint(self):
         r=self.spacecraft.scStateOutMsg.read().r_BN_N
         rot=self.planet_msg.read().J20002Pfix
-        return ground_point_from_position(r,rot,self.radius)
+        return ground_point_from_position(r,rot,self.radius,
+                                          geodetic=self.geodetic)
 
     def UpdateState(self,CurrentSimNanos):
         t=float(CurrentSimNanos)*macros.NANO2SEC
@@ -133,10 +162,17 @@ class UniversalMissionDirector(sysModel.SysModel):
                             self._previous_strip_fix,(lat,lon),self.radius)
                 self._previous_strip_fix=(lat,lon)
                 self._previous_strip_time=t
-                record={"t_s":t,"task":name,"lat_deg":lat,"lon_deg":lon,
+                previous=self._previous_strip_fix
+                record={"t_s":t,"task":name,"task_region_id":job["region_id"],
+                        "lat_deg":lat,"lon_deg":lon,
+                        "previous_lat_deg":previous[0] if previous is not None and length>0 else None,
+                        "previous_lon_deg":previous[1] if previous is not None and length>0 else None,
                         "altitude_m":h,"region_signed_distance_m":distance,
                         "swath_width_m":width,"along_track_m":length,
                         "approx_area_m2":length*width,"data_bits":baud*self.step}
+                self.actual_operations.append({"task":name,"kind":"strip",
+                   "operation":"camera","actual_start_s":t-self.step,"actual_end_s":t,
+                   "data_bits":baud*self.step})
                 self.lines.append(record)
                 self.events.append({"t_s":t,"event":"strip_line","task":name,
                                     "line":self.capture_count[name],
@@ -144,17 +180,25 @@ class UniversalMissionDirector(sysModel.SysModel):
                 if self.capture_count[name]>=int(job["max_samples"]):
                     self._advance(t,"completed")
             else:
+                self.actual_operations.append({"task":name,"kind":"point",
+                    "operation":"camera","actual_start_s":t-self.step,"actual_end_s":t,
+                    "data_bits":baud*self.step})
                 self.events.append({"t_s":t,"event":"point_captured",
                                     "task":name,"data_bits":baud*self.step})
                 self._advance(t,"completed")
 
-        # Expired tasks are skipped, never represented as physical captures.
-        while (self._task() is not None
-               and t>float(self._task()["deadline_s"])):
+        # Skip at planned window end/deadline; never invent a capture.
+        while self._task() is not None:
             current=self._task()
+            planned_end=float(current.get("planned_end_s",current["deadline_s"]))
+            cutoff=min(planned_end,float(current["deadline_s"]))
+            if t<=cutoff+1e-9:
+                break
             samples=self.capture_count[current["id"]]
             minimum=int(current.get("min_samples",1))
-            status="completed" if current.get("kind","point")=="strip" and samples>=minimum else "deadline_missed"
+            status=("completed" if current.get("kind","point")=="strip" and samples>=minimum
+                    else "planned_window_missed" if planned_end<float(current["deadline_s"])
+                    else "deadline_missed")
             self._advance(t,status)
 
         job=self._task()
@@ -163,7 +207,11 @@ class UniversalMissionDirector(sysModel.SysModel):
         if job is not None and job.get("kind","point")=="strip":
             lat,lon,h=lat_trace,lon_trace,h_trace
             self._last_subpoint=(lat,lon,h)
-            self.target.specifyLocation(macros.D2R*lat,macros.D2R*lon,0.)
+            target_lat=lat
+            if self.geodetic:
+                from experiments.mission_03.geo_time import geocentric_latitude_for_geodetic
+                target_lat=geocentric_latitude_for_geodetic(lat)
+            self.target.specifyLocation(macros.D2R*target_lat,macros.D2R*lon,0.)
             reg=self.regions[job["region_id"]]
             overlap,_,_=swath_intersects_region(
                 lat,lon,h,float(job["fov_cross_track_deg"]),
@@ -196,11 +244,20 @@ class UniversalMissionDirector(sysModel.SysModel):
         product_bytes=(int(job.get("sample_bytes",0)) if kind=="strip" else
                        int(job.get("product_bytes",self.default_product_bytes))
                        if job is not None else self.default_product_bytes)
-        imaging_allowed=(job is not None and self.allowed
-                         and t>=float(job.get("release_s",0))
-                         and t<=float(job["deadline_s"])
-                         and (kind!="strip" or self._strip_eligible)
-                         and storage_bits+8*product_bytes<=cap_bits+1)
+        window_open=(job is not None and
+                     t>=max(float(job.get("release_s",0)),
+                            float(job.get("planned_start_s",0)))
+                     and t+self.step<=min(float(job["deadline_s"]),
+                                          float(job.get("planned_end_s",job["deadline_s"])))+1e-9)
+        space_ok=(storage_bits+8*product_bytes<=cap_bits+1)
+        geometry_ok=(kind!="strip" or self._strip_eligible)
+        imaging_allowed=(job is not None and self.allowed and window_open
+                         and geometry_ok and space_ok)
+        if job is not None:
+            if not self.allowed: self.inhibited_counts["power"]+=1
+            elif not window_open: self.inhibited_counts["schedule"]+=1
+            elif not space_ok: self.inhibited_counts["memory"]+=1
+            elif not geometry_ok: self.inhibited_counts["geometry"]+=1
         self.data.controller_model.attErrTolerance=(
             self.nominal_att_tol if imaging_allowed else -1.)
         self.data.controller_model.rateErrTolerance=(
