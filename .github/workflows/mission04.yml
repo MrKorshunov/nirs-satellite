@@ -38,6 +38,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: python -m pip install "bsk[all,examples]==2.12.2"
+      - run: python -m pip install -r science_requirements.txt
       - name: Actual Basilisk reaction-wheel nadir swath and point captures
         run: python -m experiments.mission_03.run --config inputs/physical/mission_mixed_demo.json --regions inputs/physical/territories.json --viz-mode off --duration-hours 0.2 --require-all-complete --output-name mission04_linux
       - name: Verify physical mixed mode and telemetry footprint
@@ -162,6 +163,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: python -m pip install "bsk[all,examples]==2.12.2"
+      - run: python -m pip install -r science_requirements.txt
       - name: Actual mixed point and strip dynamics plus Vizard binary
         run: python -m experiments.mission_03.run --config inputs/physical/mission_mixed_demo.json --regions inputs/physical/territories.json --viz-mode file --viz-step-s 10 --duration-hours 0.2 --require-all-complete --output-name mission04_windows
       - name: Check resulting image lines, physically switched target and playback file
