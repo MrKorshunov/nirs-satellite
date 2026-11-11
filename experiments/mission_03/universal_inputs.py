@@ -45,8 +45,17 @@ def validate_program(cfg:dict,regions_cfg:dict,mission_cfg:dict,power_cfg:dict,s
             raise ValueError("Task type must be point or strip")
         release=float(job.get("release_s",0))
         deadline=float(job["deadline_s"])
-        if not all(math.isfinite(v) for v in [release,deadline]) or release<0 or deadline<=release:
-            raise ValueError("Invalid task release/deadline")
+        start=float(job.get("planned_start_s",release))
+        end=float(job.get("planned_end_s",deadline))
+        if (not all(math.isfinite(v) for v in [release,deadline,start,end])
+                or release<0 or deadline<=release or start<release
+                or start>=end or end>deadline):
+            raise ValueError("Invalid task release/deadline or planned [start,end] interval")
+        if not math.isclose(start/step,round(start/step),abs_tol=1e-8):
+            raise ValueError("Planned start must align with physical step")
+        if not math.isclose(end/step,round(end/step),abs_tol=1e-8):
+            raise ValueError("Planned end must align with physical step")
+
         if kind=="point":
             for field in ("lat_deg","lon_deg","altitude_m","minimum_elevation_deg","maximum_range_m"):
                 if not math.isfinite(float(job[field])):
