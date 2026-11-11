@@ -538,17 +538,25 @@ def main():
         switch_t=director.switch_t
         granted_segments=director.granted_segments
         observations=sum(x["event"]=="captured" for x in events)
+    # External planner programs and validation profiles can legitimately
+    # reside OUTSIDE the repository; provenance must not assume ROOT-relative.
+    def source_key(path):
+        p=Path(path).resolve()
+        try:
+            return p.relative_to(ROOT).as_posix()
+        except ValueError:
+            return str(p)
     source_hashes={
-        str(path.relative_to(ROOT)):checksum for path,checksum in (
-            (args.config.resolve(),sha),(input_path("orbit"),orbit_sha),
+        source_key(path):checksum for path,checksum in (
+            (args.config,sha),(input_path("orbit"),orbit_sha),
             (input_path("earth_target"),geo_sha),(args.adcs_config,adcs_sha),
             (input_path("power"),power_sha),(args.camera_config,mission_sha))
     }
     if universal:
         from experiments.mission_03.report_universal import save_results
-        source_hashes[str(args.regions)]=region_sha
+        source_hashes[source_key(args.regions)]=region_sha
         if args.program is not None:
-            source_hashes[str(args.program)]=program_sha
+            source_hashes[source_key(args.program)]=program_sha
         (out/"execution_program_used.json").write_text(
             json.dumps(cfg,ensure_ascii=False,indent=2),encoding="utf-8")
         (out/"territories_used.json").write_text(
