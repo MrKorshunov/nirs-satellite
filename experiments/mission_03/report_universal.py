@@ -155,6 +155,7 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
         "all_actual_strip_lines_intersect_territory":all(
             float(line.get("instant_footprint_overlap_m2",0.0))>0.
             for line in director.lines),
+        "geometry_callbacks_without_exceptions":not director.geometry_errors,
         "basilisk_earth_longitude_matches_utc_gmst":(
             orientation_error_deg is None or orientation_error_deg<0.3),
     }
@@ -229,6 +230,7 @@ def save_results(*,out:Path,cfg:dict,regions:dict,source_hashes:dict,
         "utc_end":date_at(epoch_info["epoch_utc"],t[-1]) if epoch_info else None,
         "planned_downlink_windows":planned_radio,
         "coverage":coverage,
+        "geometry_errors":director.geometry_errors,
         "physical_target_switch_count":len(director.switch_times),
         "sample_count":n,
         "step_s":float(step),
