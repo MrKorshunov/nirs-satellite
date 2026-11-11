@@ -1,0 +1,12 @@
+{
+  "scenario_id": "mission05_utc_demo",
+  "provenance": "SYNTHETIC ORBIT with date anchor only; approximate Earth rotation not a precise UTC orbit ephemeris",
+  "time_frame_mode": "utc_approx_wgs84",
+  "epoch_utc": "2026-11-11T00:00:00Z",
+  "ut1_minus_utc_s": 0,
+  "notes": [
+    "UTC anchor example; DUT1 is placeholder (actual source IERS EOP required)",
+    "GroundLocation retains spherical Earth, footprints use WGS84 geodetic conversion",
+    "Changing epoch changes orbital ground-track and may make example targets unreachable"
+  ]
+}
