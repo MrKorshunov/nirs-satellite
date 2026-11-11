@@ -28,7 +28,7 @@ class UniversalExecutorTests(unittest.TestCase):
         self.validate(c)
 
     def test_many_targets_program_is_valid(self):
-        c=copy.deepcopy(self.cfg);c["tasks"]=c["tasks"][:1]*12
+        c=copy.deepcopy(self.cfg);c["tasks"]=[copy.deepcopy(c["tasks"][0]) for _ in range(12)]
         for n,job in enumerate(c["tasks"]):
             job["id"]=f"SHOT_{n:02d}"
         self.validate(c)
