@@ -10,10 +10,10 @@ from experiments.mission_03.swath_geometry import (
 class UniversalExecutorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.cfg=json.loads(input_path("mission_mixed_demo").read_text())
-        cls.reg=json.loads(input_path("territories").read_text())
-        cls.hw=json.loads(input_path("camera_storage_radio").read_text())
-        cls.power=json.loads(input_path("power").read_text())
+        cls.cfg=json.loads(input_path("mission_mixed_demo").read_text(encoding="utf-8"))
+        cls.reg=json.loads(input_path("territories").read_text(encoding="utf-8"))
+        cls.hw=json.loads(input_path("camera_storage_radio").read_text(encoding="utf-8"))
+        cls.power=json.loads(input_path("power").read_text(encoding="utf-8"))
 
     def validate(self,cfg):
         return validate_program(cfg,self.reg,self.hw,self.power,0.5)

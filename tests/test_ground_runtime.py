@@ -108,13 +108,13 @@ class RuntimeSettingsTests(unittest.TestCase):
                 software={"bsk": "2.12.2"},
                 notes=["not real satellite"],
             )
-            saved = json.loads((root / "output" / "run_manifest.json").read_text())
+            saved = json.loads((root / "output" / "run_manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(saved["runtime"]["horizon_s"], BASE["orbit_period_s"])
             self.assertEqual(saved["inputs"]["ground"]["values"]["target"], "synthetic")
             self.assertEqual(saved["inputs"]["ground"]["sha256"], sha_at_read)
             self.assertNotEqual(saved["inputs"]["ground"]["sha256"], hashlib.sha256(cfg.read_bytes()).hexdigest())
             self.assertIn("not real satellite", saved["limitations"])
-            report = (root / "output" / "RESULTS_EXPLAINED.md").read_text()
+            report = (root / "output" / "RESULTS_EXPLAINED.md").read_text(encoding="utf-8")
             self.assertIn("НЕ", report)
             self.assertIn("5670", report)
 
