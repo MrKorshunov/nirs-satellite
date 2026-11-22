@@ -41,7 +41,7 @@
 | [physical/mission_mixed_demo.json](../inputs/physical/mission_mixed_demo.json) | Упорядоченные задания `point` / `strip`, сроки, размеры цифровых порций и FOV |
 | [physical/territories.json](../inputs/physical/territories.json) | Многоугольники регионов в градусах широты/долготы синтетической вращающейся Земли |
 
-В результате физического прогона появятся `mission03_groundtrack.csv` и `mission03_strip_footprints.csv` для проверки пересечения реальной трассы с территориями. **Реальная эпоха UTC пока не определена.** [Точный формат](UNIVERSAL_EXECUTOR_AND_STRIP.md).
+В результате физического прогона появятся `mission03_groundtrack.csv` и `mission03_strip_footprints.csv` для проверки пересечения трассы с территориями. Если `epoch_utc` не задан, используется условная эпоха; Mission05 допускает явную UTC-эпоху и приближённую GMST по правилам выше. [Точный формат](UNIVERSAL_EXECUTOR_AND_STRIP.md).
 
 ## Как вводить значения
 

@@ -15,9 +15,10 @@ class RepositoryLayoutTests(unittest.TestCase):
 
     def test_curated_documentation_exists(self):
         for file in (
-            "README.md", "docs/START_HERE.md", "docs/CODE_MAP.md",
+            "README.md", "docs/PROJECT_STATUS.md", "docs/START_HERE.md", "docs/CODE_MAP.md",
             "docs/INPUT_DATA.md", "docs/WHAT_IS_MISSING.md",
             "docs/COMPARISON_BASILISK.md", "docs/WINDOWS_GUI_GUIDE.md",
+            "docs/GIT_WINDOWS.md",
             "docs/history/README.md", "archive/README.md", "inputs/README.md",
         ):
             with self.subTest(file=file):

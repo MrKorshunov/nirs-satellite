@@ -4,7 +4,7 @@
 
 ## Исходная конфигурация
 
-Точные машинно-читаемые исходные данные находятся в [config.json](../experiments/ground_01/config.json), исходный orbit-01 — [orbit config](../experiments/orbit_01/config.json).
+Точные машинно-читаемые исходные данные находятся в [earth_target.json](../inputs/physical/earth_target.json), исходный orbit-01 — [orbit.json](../inputs/physical/orbit.json).
 
 - Орбита: синтетическая двухтельная круговая, начальная высота 500 км, наклонение 45°, RAAN 30°.
 - Наземная цель: синтетические широта 14°, долгота 43°, высота 0 м, минимальный угол места 10°.

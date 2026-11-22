@@ -1,3 +1,6 @@
+# Versions recorded in the locally accepted Mission05 baseline.
+numpy==2.4.6
+matplotlib==3.10.9
 # Fixed geodesy/robust 2D polygon intersection (Python 3.13 Windows/Linux wheels)
 shapely==2.1.2
 pyproj==3.7.2

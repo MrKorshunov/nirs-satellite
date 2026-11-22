@@ -7,7 +7,7 @@ echo ====================================================
 echo NIRS satellite simulator - first-time environment
 echo ====================================================
 echo.
-py -3.13 -c "import sys; assert sys.version_info[:2] == (3,13)"
+py -3.13 -c "import struct,sys; assert sys.version_info[:2] == (3,13) and struct.calcsize('P') == 8"
 if errorlevel 1 (
     echo.
     echo ERROR: Python 3.13 64-bit is not available via py launcher.
@@ -20,6 +20,15 @@ if not exist ".venv\Scripts\python.exe" (
     echo Creating local isolated Python environment...
     py -3.13 -m venv ".venv"
     if errorlevel 1 goto fail
+)
+echo Checking the existing local Python environment...
+".venv\Scripts\python.exe" -c "import struct,sys; assert sys.version_info[:2] == (3,13) and struct.calcsize('P') == 8"
+if errorlevel 1 (
+    echo.
+    echo ERROR: .venv must use 64-bit Python 3.13.
+    echo Rename the existing .venv folder in Explorer, then run SETUP_NIRS.cmd again.
+    pause
+    exit /b 1
 )
 echo Updating pip...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
@@ -34,7 +43,7 @@ echo Checking Basilisk and the graphical interface...
 ".venv\Scripts\python.exe" -c "import Basilisk, tkinter; print('Basilisk + Tkinter OK')"
 if errorlevel 1 goto fail
 echo Checking launcher command builder...
-".venv\Scripts\python.exe" -m unittest tests.test_launcher_core -v
+".venv\Scripts\python.exe" -m unittest discover -s tests -p "test_launcher_core.py" -v
 if errorlevel 1 goto fail
 echo.
 echo Installation successful. Use START_NIRS.cmd from now on.
