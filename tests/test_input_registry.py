@@ -60,7 +60,7 @@ class InputRegistryTests(unittest.TestCase):
     def test_invalid_editor_does_not_modify_original(self):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "test.json"
-            path.write_text('{"scenario_id":"x","provenance":"SYNTHETIC"}')
+            path.write_text('{"scenario_id":"x","provenance":"SYNTHETIC"}', encoding="utf-8")
             with patch("nirs_satellite.input_editor.input_path",return_value=path):
                 with self.assertRaises(ValueError):
                     save_input("orbit",'["invalid"]')

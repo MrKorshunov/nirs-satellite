@@ -33,7 +33,7 @@ notepad .\results\orbit_01\validation.json
 
 | Что | В нашем GitHub | В установленном Basilisk/официальном GitHub |
 |---|---|---|
-| Параметры (500 км, наклонение и т.д.) | `experiments/orbit_01/config.json` | Не являются параметрами конкретной миссии |
+| Параметры (500 км, наклонение и т.д.) | `inputs/physical/orbit.json` (ранняя версия лежала в `experiments/orbit_01/config.json`) | Не являются параметрами конкретной миссии |
 | Настройка модели и запуск | `experiments/orbit_01/run_orbit.py` | API `spacecraft.Spacecraft`, `simIncludeGravBody` |
 | Само интегрирование и динамика КА | Вызывается, **не скопировано** | [spacecraft.cpp](https://github.com/AVSLab/basilisk/blob/v2.12.2/src/simulation/dynamics/spacecraft/spacecraft.cpp) |
 | Гравитационное воздействие | Вызывается, **не скопировано** | [gravityEffector.cpp](https://github.com/AVSLab/basilisk/blob/v2.12.2/src/simulation/dynamics/_GeneralModuleFiles/gravityEffector.cpp) |
